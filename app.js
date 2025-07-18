@@ -37,7 +37,12 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:8080', 'http://localhost:8081'],
+  origin: [
+    'https://easy-earn-client.vercel.app', // <-- Add this line for Vercel
+    'http://localhost:5173',
+    'http://localhost:8080',
+    'http://localhost:8081'
+  ],
   credentials: true,
 }));
 
