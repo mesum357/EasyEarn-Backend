@@ -32,26 +32,42 @@ const transporter = nodemailer.createTransport({
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'massux357@gmail.com';
 
-app.use(express.json());
+// Trust proxy for deployment platforms like Render
+if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+}
 
+app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
 app.use(cors({
-  origin: [
-    'https://easyearn-frontend4.vercel.app',
-    'https://easyearn-adminpanel2.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:8080',
-    'http://localhost:8081',
-    'http://127.0.0.1:8080',
-    'http://192.168.1.7:8080', // Network access
-    'http://192.168.1.7:3000'
-  ],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or Postman)
+    const allowedOrigins = [
+      'https://easyearn-frontend5.vercel.app',
+      'https://easyearn-backend-4.onrender.com',
+      'https://easyearn-adminpanel2.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://localhost:8080',
+      'http://localhost:8081',
+      'http://127.0.0.1:8080',
+      'http://192.168.1.7:8080', // Network access
+      'http://192.168.1.7:3000'
+    ];
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie'],
+  exposedHeaders: ['Set-Cookie'],
   optionsSuccessStatus: 200 // Some legacy browsers (IE11, various SmartTVs) choke on 204
 }));
 
@@ -59,26 +75,108 @@ app.use(cors({
 app.options('*', cors());
 
 // Session configuration
+const isProduction = process.env.NODE_ENV === 'production';
+const isLocalDev = !isProduction || process.env.FORCE_LOCAL_DEV === 'true';
+
+console.log('Environment:', process.env.NODE_ENV);
+console.log('Is Production:', isProduction);
+console.log('Session Store URL:', process.env.MONGODB_URI ? 'Set' : 'Not Set');
+
 app.use(session({
-    secret: process.env.SESSION_SECRET,
+    secret: process.env.SESSION_SECRET || 'fallback-secret-key-change-in-production',
     resave: false,
     saveUninitialized: false,
-    store: process.env.NODE_ENV === 'production' 
-        ? MongoStore.create({
-            mongoUrl: process.env.MONGODB_URI,
-            touchAfter: 24 * 3600 // lazy session update
-        })
-        : undefined,
+    store: MongoStore.create({
+        mongoUrl: process.env.MONGODB_URI,
+        touchAfter: 24 * 3600, // lazy session update
+        autoRemove: 'native',
+        ttl: 24 * 60 * 60 // 24 hours session TTL
+    }),
     cookie: {
-        secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
+        secure: isProduction && !process.env.DISABLE_SECURE_COOKIES, // Use secure cookies only in production
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // Required for cross-origin cookies
-    }
+        sameSite: isProduction ? 'none' : 'lax' // Required for cross-origin cookies in production
+    },
+    name: 'connect.sid', // Use default session name for better compatibility
+    proxy: isProduction // Trust proxy in production
 }));
 
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Debug middleware to log session info
+app.use((req, res, next) => {
+  if (req.path !== '/api/my-participations' && req.path !== '/me') {
+    console.log(`${req.method} ${req.path} - Session ID: ${req.sessionID}, Authenticated: ${req.isAuthenticated()}, User: ${req.user ? req.user.username : 'none'}`);
+  }
+  next();
+});
+
+// Test endpoint to verify session functionality
+app.get('/test-session', (req, res) => {
+  if (!req.session.views) {
+    req.session.views = 0;
+  }
+  req.session.views++;
+  
+  res.json({
+    message: 'Session test',
+    views: req.session.views,
+    sessionID: req.sessionID,
+    isAuthenticated: req.isAuthenticated(),
+    cookieSecure: req.session.cookie.secure,
+    cookieSameSite: req.session.cookie.sameSite
+  });
+});
+
+// Temporary login endpoint with forced non-secure cookies for testing
+app.post('/login-test', function(req, res, next) {
+  console.log('Test login attempt for:', req.body.username);
+  
+  passport.authenticate('local', function(err, user, info) {
+    if (err) {
+      console.error('Login error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    if (!user.verified) {
+      return res.status(401).json({ error: 'Please verify your email before logging in.' });
+    }
+    
+    req.logIn(user, function(err) {
+      if (err) {
+        console.error('req.logIn error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      
+      // Force non-secure cookie for testing
+      req.session.cookie.secure = false;
+      req.session.cookie.sameSite = 'lax';
+      
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error:', err);
+        }
+        console.log('Test login successful, session saved');
+        console.log('Cookie settings:', {
+          secure: req.session.cookie.secure,
+          sameSite: req.session.cookie.sameSite,
+          sessionID: req.sessionID
+        });
+        
+        return res.status(200).json({
+          success: true,
+          message: 'Login successful',
+          user: { id: user._id, email: user.email, username: user.username },
+          sessionID: req.sessionID
+        });
+      });
+    });
+  })(req, res, next);
+});
 
 // MONGOOSE
 const mongooseOptions = {};
@@ -274,21 +372,45 @@ app.get('/verify-email', async (req, res) => {
 
 // Login API route
 app.post("/login", function(req, res, next) {
+    console.log('Login attempt for:', req.body.username);
+    console.log('Session ID before login:', req.sessionID);
+    console.log('Session before login:', req.session);
+    
     passport.authenticate("local", function(err, user, info) {
         if (err) {
+            console.error('Login error:', err);
             return res.status(500).json({ error: 'Internal server error' });
         }
         if (!user) {
+            console.log('Login failed - user not found or invalid credentials');
             return res.status(401).json({ error: 'Invalid email or password' });
         }
         if (!user.verified) {
+            console.log('Login failed - user not verified');
             return res.status(401).json({ error: 'Please verify your email before logging in.' });
         }
+        
         req.logIn(user, function(err) {
             if (err) {
+                console.error('req.logIn error:', err);
                 return res.status(500).json({ error: 'Internal server error' });
             }
-            return res.status(200).json({ success: true, message: 'Login successful', user: { id: user._id, email: user.email, username: user.username } });
+            
+            console.log('Login successful for:', user.username);
+            console.log('Session ID after login:', req.sessionID);
+            console.log('Session after login:', req.session);
+            console.log('req.user after login:', req.user);
+            console.log('req.isAuthenticated() after login:', req.isAuthenticated());
+            
+            return res.status(200).json({ 
+                success: true, 
+                message: 'Login successful', 
+                user: { 
+                    id: user._id, 
+                    email: user.email, 
+                    username: user.username 
+                } 
+            });
         });
     })(req, res, next);
 });
@@ -318,8 +440,22 @@ app.get('/me', (req, res) => {
   console.log('/me endpoint hit - session:', req.session);
   console.log('/me endpoint hit - cookies:', req.headers.cookie);
   console.log('/me endpoint hit - origin:', req.headers.origin);
-  if (req.isAuthenticated()) {
-    res.json({ user: req.user });
+  console.log('/me endpoint hit - user-agent:', req.headers['user-agent']);
+  console.log('/me endpoint hit - session store:', req.sessionStore ? 'exists' : 'missing');
+  console.log('/me endpoint hit - cookie settings:', {
+    secure: req.sessionStore.options?.cookie?.secure,
+    httpOnly: req.sessionStore.options?.cookie?.httpOnly,
+    sameSite: req.sessionStore.options?.cookie?.sameSite
+  });
+  
+  if (req.isAuthenticated() && req.user) {
+    res.json({ 
+      user: {
+        id: req.user._id,
+        username: req.user.username,
+        email: req.user.email
+      }
+    });
   } else {
     res.status(401).json({ error: 'Not authenticated' });
   }
@@ -327,6 +463,36 @@ app.get('/me', (req, res) => {
 
 app.get('/', (req, res) => {
     res.send('Hello World');
+});
+
+// Debug endpoint to test database connection
+app.get('/debug/db', async (req, res) => {
+  try {
+    const userCount = await User.countDocuments();
+    const sessionCount = req.sessionStore ? 'Session store available' : 'No session store';
+    
+    res.json({
+      database: 'Connected',
+      userCount,
+      sessionStore: sessionCount,
+      environment: process.env.NODE_ENV,
+      mongoUri: process.env.MONGODB_URI ? 'Set' : 'Not set',
+      sessionSecret: process.env.SESSION_SECRET ? 'Set' : 'Not set'
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Database connection failed', details: error.message });
+  }
+});
+
+// Debug endpoint to check session
+app.get('/debug/session', (req, res) => {
+  res.json({
+    sessionID: req.sessionID,
+    session: req.session,
+    isAuthenticated: req.isAuthenticated(),
+    user: req.user,
+    cookies: req.headers.cookie
+  });
 });
 
 // Forgot Password: Send reset link
