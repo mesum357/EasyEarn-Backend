@@ -1,6 +1,7 @@
 require('dotenv').config();
 const bodyParser = require('body-parser');
 const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const passport = require('passport');
 const findOrCreate = require('mongoose-findorcreate');
 const passportLocalMongoose = require('passport-local-mongoose');
@@ -47,13 +48,23 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  optionsSuccessStatus: 200 // Some legacy browsers (IE11, various SmartTVs) choke on 204
 }));
+
+// Handle preflight OPTIONS requests
+app.options('*', cors());
 
 // Session configuration
 app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    store: process.env.NODE_ENV === 'production' 
+        ? MongoStore.create({
+            mongoUrl: process.env.MONGODB_URI,
+            touchAfter: 24 * 3600 // lazy session update
+        })
+        : undefined,
     cookie: {
         secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
         httpOnly: true,
@@ -139,7 +150,7 @@ passport.use(new GoogleStrategy({
     clientID: process.env.CLIENT_ID,
     clientSecret: process.env.CLIENT_SECRET,
     callbackURL: process.env.NODE_ENV === 'production' 
-        ? `${process.env.VERCEL_URL}/auth/google/homepage`
+        ? "https://easyearn-backend-4.onrender.com/auth/google/homepage"
         : "http://localhost:3000/auth/google/homepage",
     passReqToCallback: true
 },
@@ -293,7 +304,10 @@ app.get('/logout', function(req, res, next) {
 app.get('/me', (req, res) => {
   console.log('/me endpoint hit - req.isAuthenticated():', req.isAuthenticated());
   console.log('/me endpoint hit - req.user:', req.user);
+  console.log('/me endpoint hit - req.sessionID:', req.sessionID);
   console.log('/me endpoint hit - session:', req.session);
+  console.log('/me endpoint hit - cookies:', req.headers.cookie);
+  console.log('/me endpoint hit - origin:', req.headers.origin);
   if (req.isAuthenticated()) {
     res.json({ user: req.user });
   } else {
