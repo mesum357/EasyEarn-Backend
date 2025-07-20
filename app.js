@@ -38,7 +38,7 @@ app.use(express.static('public'));
 
 app.use(cors({
   origin: [
-    'https://easy-earn-client.vercel.app', // <-- Add this line for Vercel
+    'https://easyearn-frontend1.vercel.app', // <-- Updated to match new Vercel domain
     'http://localhost:5173',
     'http://localhost:8080',
     'http://localhost:8081'
@@ -282,6 +282,9 @@ app.get('/logout', function(req, res, next) {
 });
 
 app.get('/me', (req, res) => {
+  console.log('/me endpoint hit - req.isAuthenticated():', req.isAuthenticated());
+  console.log('/me endpoint hit - req.user:', req.user);
+  console.log('/me endpoint hit - session:', req.session);
   if (req.isAuthenticated()) {
     res.json({ user: req.user });
   } else {
@@ -355,7 +358,7 @@ const participationSchema = new mongoose.Schema({
   prizeTitle: { type: String, required: true },
   walletAddress: { type: String, required: true },
   receiptUrl: { type: String, required: true },
-  submittedButton: { type: Boolean, default: false },
+  submittedButton: { type: Boolean, default: null }, // null means pending, true means approved, false means rejected
   createdAt: { type: Date, default: Date.now }
 });
 const Participation = mongoose.model('Participation', participationSchema);
@@ -372,18 +375,37 @@ const FundRequest = mongoose.model('FundRequest', fundRequestSchema);
 // Save participation entry
 app.post('/api/participate', async (req, res) => {
   try {
-    const { prizeId, prizeTitle, walletAddress, receiptUrl, submittedButton } = req.body;
+    console.log('Participate: req.user =', req.user);
+    const { prizeId, prizeTitle, walletAddress, receiptUrl } = req.body;
     const userId = req.user ? req.user._id : null;
-    const participation = new Participation({
-      user: userId,
-      prizeId,
-      prizeTitle,
-      walletAddress,
-      receiptUrl,
-      submittedButton: !!submittedButton
-    });
-    await participation.save();
-    res.status(201).json({ success: true, participation });
+    
+    // Check if user already has a participation for this prize
+    const existingParticipation = await Participation.findOne({ user: userId, prizeId });
+    
+    if (existingParticipation) {
+      // Update existing participation
+      existingParticipation.prizeTitle = prizeTitle;
+      existingParticipation.walletAddress = walletAddress;
+      existingParticipation.receiptUrl = receiptUrl;
+      existingParticipation.submittedButton = null; // Reset to pending
+      existingParticipation.createdAt = new Date();
+      await existingParticipation.save();
+      console.log('Updated participation:', existingParticipation);
+      res.status(201).json({ success: true, participation: existingParticipation });
+    } else {
+      // Create new participation
+      const participation = new Participation({
+        user: userId,
+        prizeId,
+        prizeTitle,
+        walletAddress,
+        receiptUrl,
+        submittedButton: null // null means pending approval
+      });
+      await participation.save();
+      console.log('Saved participation:', participation);
+      res.status(201).json({ success: true, participation });
+    }
   } catch (err) {
     res.status(500).json({ error: 'Failed to save participation', details: err.message });
   }
@@ -408,18 +430,127 @@ app.post('/api/fund-request', async (req, res) => {
 // Get participations for the current user (or all for testing if not logged in)
 app.get('/api/my-participations', async (req, res) => {
   try {
-    const userId = req.user ? req.user._id : null;
-    let participations = [];
-    if (userId) {
-      participations = await Participation.find({ user: userId });
-    } else {
-      // For testing: return all participations if not logged in
-      participations = await Participation.find({});
+    console.log('my-participations: req.user =', req.user);
+    if (!req.user) {
+      // Not authenticated, return empty array
+      return res.json({ participations: [] });
     }
-    console.log('Returning participations:', participations.map(p => ({prizeId: p.prizeId, submittedButton: p.submittedButton})));
+    const userId = req.user._id;
+    const participations = await Participation.find({ user: userId }).sort({ createdAt: -1 });
+    // Only keep the latest participation per prizeId
+    const latestByPrize = {};
+    participations.forEach(p => {
+      if (!latestByPrize[p.prizeId]) {
+        latestByPrize[p.prizeId] = p;
+      }
+    });
+    res.json({ participations: Object.values(latestByPrize) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch participations', details: err.message });
+  }
+});
+
+// Admin: Get all participation requests
+app.get('/api/admin/participations', async (req, res) => {
+  try {
+    const participations = await Participation.find({}).populate('user');
     res.json({ participations });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch participations', details: err.message });
+  }
+});
+
+// Admin: Approve or reject a participation
+app.post('/api/admin/participations/:id/approve', async (req, res) => {
+  try {
+    const participation = await Participation.findByIdAndUpdate(
+      req.params.id,
+      { submittedButton: true },
+      { new: true }
+    );
+    res.json({ success: true, participation });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to approve participation', details: err.message });
+  }
+});
+
+app.post('/api/admin/participations/:id/reject', async (req, res) => {
+  try {
+    const participation = await Participation.findByIdAndUpdate(
+      req.params.id,
+      { submittedButton: false },
+      { new: true }
+    );
+    res.json({ success: true, participation });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to reject participation', details: err.message });
+  }
+});
+
+// Admin: Get all users with pagination
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+    
+    // Get total count for pagination info
+    const total = await User.countDocuments({});
+    
+    // Get paginated users
+    const users = await User.find({}, '-password -resetPasswordToken -resetPasswordExpires -verificationToken')
+      .sort({ createdAt: -1 }) // Latest first
+      .skip(skip)
+      .limit(limit);
+    
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(total / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+    
+    res.json({ 
+      users,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalUsers: total,
+        limit,
+        hasNextPage,
+        hasPrevPage
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch users', details: err.message });
+  }
+});
+
+// Notification Schema
+const notificationSchema = new mongoose.Schema({
+  title: String,
+  message: String,
+  createdAt: { type: Date, default: Date.now }
+});
+const Notification = mongoose.model('Notification', notificationSchema);
+
+// Admin: Create notification
+app.post('/api/admin/notifications', async (req, res) => {
+  try {
+    const { title, message } = req.body;
+    const notification = new Notification({ title, message });
+    await notification.save();
+    res.status(201).json({ success: true, notification });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create notification', details: err.message });
+  }
+});
+
+// Get all notifications
+app.get('/api/notifications', async (req, res) => {
+  try {
+    const notifications = await Notification.find({}).sort({ createdAt: -1 });
+    res.json({ notifications });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch notifications', details: err.message });
   }
 });
 
