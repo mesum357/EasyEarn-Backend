@@ -39,11 +39,15 @@ app.use(express.static('public'));
 
 app.use(cors({
   origin: [
-    'https://easyearn-frontend3.vercel.app',
-    'https://easyearn-adminpanel2.vercel.app', // <-- Updated to match new Vercel domain
+    'https://easyearn-frontend4.vercel.app',
+    'https://easyearn-adminpanel2.vercel.app',
+    'http://localhost:3000',
     'http://localhost:5173',
     'http://localhost:8080',
-    'http://localhost:8081'
+    'http://localhost:8081',
+    'http://127.0.0.1:8080',
+    'http://192.168.1.7:8080', // Network access
+    'http://192.168.1.7:3000'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -180,6 +184,13 @@ function ensureAuthenticated(req, res, next) {
     if (req.isAuthenticated()) {
         return next();
     }
+    res.status(401).json({ error: 'Authentication required' });
+}
+
+function ensureAuthenticatedRedirect(req, res, next) {
+    if (req.isAuthenticated()) {
+        return next();
+    }
     res.redirect('/login?error=Please login to access this page');
 }
 
@@ -293,8 +304,10 @@ app.get('/auth/google/homepage',
 
 app.get('/logout', function(req, res, next) {
     req.logout(function(err) {
-        if (err) { return next(err); }
-        res.redirect('/');
+        if (err) { 
+            return res.status(500).json({ error: 'Logout failed' }); 
+        }
+        res.json({ success: true, message: 'Logged out successfully' });
     });
 });
 
@@ -393,7 +406,7 @@ const fundRequestSchema = new mongoose.Schema({
 const FundRequest = mongoose.model('FundRequest', fundRequestSchema);
 
 // Save participation entry
-app.post('/api/participate', async (req, res) => {
+app.post('/api/participate', ensureAuthenticated, async (req, res) => {
   try {
     console.log('Participate: req.user =', req.user);
     const { prizeId, prizeTitle, walletAddress, receiptUrl } = req.body;
@@ -432,7 +445,7 @@ app.post('/api/participate', async (req, res) => {
 });
 
 // Save fund request
-app.post('/api/fund-request', async (req, res) => {
+app.post('/api/fund-request', ensureAuthenticated, async (req, res) => {
   try {
     const { receiptUrl } = req.body;
     const userId = req.user ? req.user._id : null;
