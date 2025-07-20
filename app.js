@@ -45,7 +45,7 @@ app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps or Postman)
     const allowedOrigins = [
-      'https://easyearn-frontend5.vercel.app',
+      'https://easyearn-frontend4.vercel.app',
       'https://easyearn-backend-4.onrender.com',
       'https://easyearn-adminpanel2.vercel.app',
       'http://localhost:3000',
