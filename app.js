@@ -39,7 +39,7 @@ app.use(express.static('public'));
 
 app.use(cors({
   origin: [
-    'https://easyearn-frontend2.vercel.app',
+    'https://easyearn-frontend3.vercel.app',
     'https://easyearn-adminpanel2.vercel.app', // <-- Updated to match new Vercel domain
     'http://localhost:5173',
     'http://localhost:8080',
