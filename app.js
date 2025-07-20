@@ -77,10 +77,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // MONGOOSE
-const mongooseOptions = {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-};
+const mongooseOptions = {};
 
 if (process.env.NODE_ENV === 'production') {
     mongooseOptions.ssl = true;
