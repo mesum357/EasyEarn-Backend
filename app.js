@@ -44,7 +44,9 @@ app.use(express.static('public'));
 // Define allowed origins based on environment
 const allowedOrigins = [
   // Production frontends
-  'https://easyearn-frontend5.vercel.app',
+  'https://easyearn-frontend4.vercel.app',
+  'https://easyearn-frontend5.vercel.app',  // Added newer frontend domain
+  'https://easyearn-frontend5-5s029wzy7-ahmads-projects-9a0217f0.vercel.app', // Preview deployment
   'https://easyearn-adminpanel2.vercel.app',
   // Backend (for API docs or testing)
   'https://easyearn-backend-4.onrender.com',
@@ -94,15 +96,16 @@ app.use(cors({
 app.options('*', function(req, res) {
   console.log('OPTIONS request received from origin:', req.headers.origin);
   console.log('OPTIONS request path:', req.path);
-  console.log('OPTIONS request headers:', req.headers);
   
   // Set appropriate CORS headers
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
+    // Set explicit CORS headers for proper cross-domain cookie handling
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.header('Access-Control-Expose-Headers', 'Set-Cookie'); // Important for cookie handling
     res.header('Access-Control-Max-Age', '86400'); // 24 hours
     res.status(200).end();
   } else {
@@ -141,24 +144,35 @@ const cookieSettings = {
   httpOnly: true,
   // Session lifetime from env or default to 24 hours
   maxAge: parseInt(process.env.SESSION_MAX_AGE) || 24 * 60 * 60 * 1000,
+  // Set path to root to ensure cookie is available across the site
+  path: '/',
 };
 
 // Log session lifetime for debugging
 const sessionHours = cookieSettings.maxAge / (1000 * 60 * 60);
 console.log(`Session lifetime: ${sessionHours} hours (${cookieSettings.maxAge}ms)`);
 
-// Handle secure and sameSite settings based on environment
+// Always use SameSite=None in production for cross-origin cookie sharing
+// This is CRITICAL when frontend and backend are on different domains
 if (isProduction) {
-  // In production, use secure cookies and SameSite=None for cross-site
-  cookieSettings.secure = !process.env.DISABLE_SECURE_COOKIES;
   cookieSettings.sameSite = 'none';
-  console.log('Using production cookie settings: secure=', cookieSettings.secure, 'sameSite=none');
+  cookieSettings.secure = true;
+  console.log('Production environment: Using secure cookies with SameSite=None for cross-origin support');
 } else {
-  // In development, don't require HTTPS
-  cookieSettings.secure = false;
-  cookieSettings.sameSite = 'lax';
-  console.log('Using development cookie settings: secure=false, sameSite=lax');
+  // In development, we can be more flexible
+  if (process.env.DISABLE_SECURE_COOKIES === 'true') {
+    cookieSettings.sameSite = 'lax';
+    cookieSettings.secure = false;
+    console.log('Development environment: Using insecure cookies with SameSite=Lax');
+  } else {
+    cookieSettings.sameSite = 'none';
+    cookieSettings.secure = true;
+    console.log('Development environment: Using secure cookies with SameSite=None');
+  }
 }
+
+// Log the cookie settings
+console.log('Cookie settings:', cookieSettings);
 
 // Domain setting (optional) - if you want to share cookies across subdomains
 if (process.env.COOKIE_DOMAIN) {
@@ -735,6 +749,32 @@ app.get('/debug/session', (req, res) => {
     isAuthenticated: req.isAuthenticated(),
     user: req.user,
     cookies: req.headers.cookie
+  });
+});
+
+// Cookie debug endpoint
+app.get('/debug/cookies', (req, res) => {
+  // Set a test cookie
+  res.cookie('test_cookie', 'cookie_value', {
+    httpOnly: true,
+    secure: cookieSettings.secure,
+    sameSite: cookieSettings.sameSite,
+    maxAge: 3600000 // 1 hour
+  });
+  
+  // Return information about the cookie settings
+  res.json({
+    message: 'Test cookie set',
+    cookieSettings: {
+      secure: cookieSettings.secure,
+      sameSite: cookieSettings.sameSite,
+      httpOnly: cookieSettings.httpOnly,
+      path: cookieSettings.path || '/',
+      domain: cookieSettings.domain || 'not set'
+    },
+    requestCookies: req.headers.cookie || 'no cookies in request',
+    sessionID: req.sessionID || 'no session ID',
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
