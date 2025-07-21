@@ -52,6 +52,7 @@ const allowedOrigins = [
   'https://easyearn-backend-4.onrender.com',
   // Development origins
   'http://localhost:3000',
+  'http://localhost:3005',
   'http://localhost:5173',
   'http://localhost:8080',
   'http://localhost:8081',
@@ -1061,6 +1062,6 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   res.json({ url: fileUrl });
 });
 
-app.listen(3000, () => {
+app.listen(3005, () => {
     console.log('Server is running on port 3000');
 });
