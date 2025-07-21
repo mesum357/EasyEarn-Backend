@@ -41,38 +41,75 @@ app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
+// Define allowed origins based on environment
+const allowedOrigins = [
+  // Production frontends
+  'https://easyearn-frontend4.vercel.app',
+  'https://easyearn-adminpanel2.vercel.app',
+  // Backend (for API docs or testing)
+  'https://easyearn-backend-4.onrender.com',
+  // Development origins
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:8080',
+  'http://localhost:8081',
+  // Network testing
+  'http://127.0.0.1:8080',
+  'http://127.0.0.1:5173',
+  'http://192.168.1.7:8080',
+  'http://192.168.1.7:3000'
+];
+
+// Log allowed origins for debugging
+console.log(`CORS configured with ${allowedOrigins.length} allowed origins:`);
+allowedOrigins.forEach(origin => console.log(` - ${origin}`));
+
+// Configure CORS with proper settings for credentials
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or Postman)
-    const allowedOrigins = [
-      'https://easyearn-frontend4.vercel.app',
-      'https://easyearn-backend-4.onrender.com',
-      'https://easyearn-adminpanel2.vercel.app',
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'http://localhost:8080',
-      'http://localhost:8081',
-      'http://127.0.0.1:8080',
-      'http://192.168.1.7:8080', // Network access
-      'http://192.168.1.7:3000'
-    ];
+    // Handle requests with no origin (like mobile apps, curl, or Postman)
+    if (!origin) {
+      console.log('Request with no origin - allowing access');
+      return callback(null, true);
+    }
     
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
+    // Check if origin is allowed
+    if (allowedOrigins.includes(origin)) {
+      console.log(`CORS allowed origin: ${origin}`);
+      return callback(null, origin); // Return the specific origin that was allowed
     } else {
-      console.log('CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+      console.log(`CORS blocked origin: ${origin}`);
+      return callback(new Error(`Origin ${origin} not allowed by CORS policy`));
     }
   },
-  credentials: true,
+  credentials: true, // Critical for cookies and authentication
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie'],
-  exposedHeaders: ['Set-Cookie'],
-  optionsSuccessStatus: 200 // Some legacy browsers (IE11, various SmartTVs) choke on 204
+  exposedHeaders: ['Set-Cookie'], // Allow frontend to see Set-Cookie header
+  maxAge: 86400, // Cache preflight request results for 1 day (in seconds)
+  optionsSuccessStatus: 200 // Some legacy browsers (IE11) choke on 204
 }));
 
 // Handle preflight OPTIONS requests
-app.options('*', cors());
+app.options('*', function(req, res) {
+  console.log('OPTIONS request received from origin:', req.headers.origin);
+  console.log('OPTIONS request path:', req.path);
+  console.log('OPTIONS request headers:', req.headers);
+  
+  // Set appropriate CORS headers
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+    res.status(200).end();
+  } else {
+    console.log('OPTIONS request blocked due to origin not allowed:', origin);
+    res.status(403).json({ error: 'CORS not allowed for this origin' });
+  }
+});
 
 // Session configuration
 const isProduction = process.env.NODE_ENV === 'production';
@@ -82,25 +119,82 @@ console.log('Environment:', process.env.NODE_ENV);
 console.log('Is Production:', isProduction);
 console.log('Session Store URL:', process.env.MONGODB_URI ? 'Set' : 'Not Set');
 
+// Clean up any existing sessions for the same user
+const sessionCleanup = async (userId) => {
+  try {
+    const sessionStore = MongoStore.create({
+      mongoUrl: process.env.MONGODB_URI,
+      collectionName: 'sessions'
+    });
+    
+    // We can't directly access session data by user ID because it's serialized
+    // This is a placeholder for potential future implementation
+    console.log(`Session cleanup requested for user ID: ${userId}`);
+  } catch (error) {
+    console.error('Session cleanup error:', error);
+  }
+};
+
+// Define cookie settings based on environment
+const cookieSettings = {
+  // Always set httpOnly for security
+  httpOnly: true,
+  // Session lifetime from env or default to 24 hours
+  maxAge: parseInt(process.env.SESSION_MAX_AGE) || 24 * 60 * 60 * 1000,
+};
+
+// Log session lifetime for debugging
+const sessionHours = cookieSettings.maxAge / (1000 * 60 * 60);
+console.log(`Session lifetime: ${sessionHours} hours (${cookieSettings.maxAge}ms)`);
+
+// Handle secure and sameSite settings based on environment
+if (isProduction) {
+  // In production, use secure cookies and SameSite=None for cross-site
+  cookieSettings.secure = !process.env.DISABLE_SECURE_COOKIES;
+  cookieSettings.sameSite = 'none';
+  console.log('Using production cookie settings: secure=', cookieSettings.secure, 'sameSite=none');
+} else {
+  // In development, don't require HTTPS
+  cookieSettings.secure = false;
+  cookieSettings.sameSite = 'lax';
+  console.log('Using development cookie settings: secure=false, sameSite=lax');
+}
+
+// Domain setting (optional) - if you want to share cookies across subdomains
+if (process.env.COOKIE_DOMAIN) {
+  cookieSettings.domain = process.env.COOKIE_DOMAIN;
+  console.log('Setting cookie domain:', process.env.COOKIE_DOMAIN);
+}
+
+const sessionStore = MongoStore.create({
+  mongoUrl: process.env.MONGODB_URI,
+  collectionName: 'sessions',
+  touchAfter: 24 * 3600, // lazy session update
+  autoRemove: 'native',
+  ttl: 24 * 60 * 60, // 24 hours session TTL
+  stringify: false, // Don't stringify session data for better debugging
+});
+
 app.use(session({
     secret: process.env.SESSION_SECRET || 'fallback-secret-key-change-in-production',
     resave: false,
     saveUninitialized: false,
-    store: MongoStore.create({
-        mongoUrl: process.env.MONGODB_URI,
-        touchAfter: 24 * 3600, // lazy session update
-        autoRemove: 'native',
-        ttl: 24 * 60 * 60 // 24 hours session TTL
-    }),
-    cookie: {
-        secure: isProduction && !process.env.DISABLE_SECURE_COOKIES, // Use secure cookies only in production
-        httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        sameSite: isProduction ? 'none' : 'lax' // Required for cross-origin cookies in production
-    },
-    name: 'connect.sid', // Use default session name for better compatibility
+    store: sessionStore,
+    cookie: cookieSettings,
+    name: process.env.SESSION_NAME || 'easyearn.sid', // Custom session name from env
     proxy: isProduction // Trust proxy in production
 }));
+
+// Get session name for logging and reference
+const sessionName = process.env.SESSION_NAME || 'easyearn.sid';
+
+// Log session store configuration
+console.log('Session store configured with options:', {
+  collectionName: 'sessions',
+  ttl: '24 hours',
+  cookie: cookieSettings,
+  sessionName: 'easyearn.sid'
+});
 
 app.use(passport.initialize());
 app.use(passport.session());
@@ -374,7 +468,8 @@ app.get('/verify-email', async (req, res) => {
 app.post("/login", function(req, res, next) {
     console.log('Login attempt for:', req.body.username);
     console.log('Session ID before login:', req.sessionID);
-    console.log('Session before login:', req.session);
+    console.log('Request cookies:', req.headers.cookie);
+    console.log('Request origin:', req.headers.origin);
     
     passport.authenticate("local", function(err, user, info) {
         if (err) {
@@ -390,26 +485,55 @@ app.post("/login", function(req, res, next) {
             return res.status(401).json({ error: 'Please verify your email before logging in.' });
         }
         
-        req.logIn(user, function(err) {
+        // Regenerate session to prevent session fixation attacks
+        req.session.regenerate(function(err) {
             if (err) {
-                console.error('req.logIn error:', err);
-                return res.status(500).json({ error: 'Internal server error' });
+                console.error('Session regeneration error:', err);
+                return res.status(500).json({ error: 'Session error' });
             }
             
-            console.log('Login successful for:', user.username);
-            console.log('Session ID after login:', req.sessionID);
-            console.log('Session after login:', req.session);
-            console.log('req.user after login:', req.user);
-            console.log('req.isAuthenticated() after login:', req.isAuthenticated());
-            
-            return res.status(200).json({ 
-                success: true, 
-                message: 'Login successful', 
-                user: { 
-                    id: user._id, 
-                    email: user.email, 
-                    username: user.username 
-                } 
+            // Log in the user
+            req.logIn(user, function(err) {
+                if (err) {
+                    console.error('req.logIn error:', err);
+                    return res.status(500).json({ error: 'Authentication error' });
+                }
+                
+                // Make sure session data is saved before sending response
+                req.session.userId = user._id; // Store user ID explicitly in session
+                req.session.loginTime = new Date().toISOString();
+                
+                // Save session explicitly to ensure it's stored in the database
+                req.session.save(function(err) {
+                    if (err) {
+                        console.error('Session save error:', err);
+                        return res.status(500).json({ error: 'Session storage error' });
+                    }
+                    
+                    console.log('Login successful for:', user.username);
+                    console.log('Session ID after login:', req.sessionID);
+                    console.log('User authenticated:', req.isAuthenticated());
+                    console.log('Session cookie:', req.session.cookie);
+                    
+                    // Get session expiration date in human-readable format
+                    const expiresAt = new Date(Date.now() + req.session.cookie.maxAge);
+                    console.log('Session expires at:', expiresAt.toISOString());
+                    
+                    // Add session expiration info to the response
+                    return res.status(200).json({ 
+                        success: true, 
+                        message: 'Login successful', 
+                        user: { 
+                            _id: user._id, 
+                            email: user.email, 
+                            username: user.username 
+                        },
+                        session: {
+                            id: req.sessionID,
+                            expiresAt: expiresAt.toISOString()
+                        }
+                    });
+                });
             });
         });
     })(req, res, next);
@@ -425,44 +549,163 @@ app.get('/auth/google/homepage',
     });
 
 app.get('/logout', function(req, res, next) {
-    req.logout(function(err) {
-        if (err) { 
+    // Save user info for logging
+    const username = req.user ? req.user.username : 'unknown';
+    const sessionID = req.sessionID;
+    
+    console.log(`Logout request from ${username} with session ${sessionID}`);
+    
+    // First, log the user out (clear req.user and remove login session)
+    req.logout(function(logoutErr) {
+        if (logoutErr) { 
+            console.error('Logout error:', logoutErr);
             return res.status(500).json({ error: 'Logout failed' }); 
         }
-        res.json({ success: true, message: 'Logged out successfully' });
+        
+        // Then destroy the session completely
+        req.session.destroy(function(destroyErr) {
+            if (destroyErr) {
+                console.error('Session destruction error:', destroyErr);
+                return res.status(500).json({ error: 'Session destruction failed' });
+            }
+            
+            console.log(`User ${username} successfully logged out. Session ${sessionID} destroyed.`);
+            
+            // Clear the session cookie using the configured name
+            res.clearCookie(sessionName);
+            
+            // Return success response
+            res.json({ 
+                success: true, 
+                message: 'Logged out successfully',
+                sessionDestroyed: true
+            });
+        });
     });
 });
 
-app.get('/me', (req, res) => {
-  console.log('/me endpoint hit - req.isAuthenticated():', req.isAuthenticated());
-  console.log('/me endpoint hit - req.user:', req.user);
-  console.log('/me endpoint hit - req.sessionID:', req.sessionID);
-  console.log('/me endpoint hit - session:', req.session);
-  console.log('/me endpoint hit - cookies:', req.headers.cookie);
-  console.log('/me endpoint hit - origin:', req.headers.origin);
-  console.log('/me endpoint hit - user-agent:', req.headers['user-agent']);
-  console.log('/me endpoint hit - session store:', req.sessionStore ? 'exists' : 'missing');
-  console.log('/me endpoint hit - cookie settings:', {
-    secure: req.sessionStore.options?.cookie?.secure,
-    httpOnly: req.sessionStore.options?.cookie?.httpOnly,
-    sameSite: req.sessionStore.options?.cookie?.sameSite
+app.get('/me', async (req, res) => {
+  console.log('/me endpoint hit - headers:', {
+    origin: req.headers.origin,
+    referer: req.headers.referer,
+    userAgent: req.headers['user-agent'],
+    contentType: req.headers['content-type'],
+    accept: req.headers.accept
   });
   
+  console.log('/me endpoint hit - session info:', {
+    sessionID: req.sessionID,
+    isAuthenticated: req.isAuthenticated(),
+    hasUser: !!req.user,
+    hasSession: !!req.session,
+    hasCookies: !!req.headers.cookie
+  });
+  
+  if (req.headers.cookie) {
+    console.log('/me endpoint hit - cookies:', req.headers.cookie);
+  }
+  
+  // Enhanced authentication check using both Passport and session data
   if (req.isAuthenticated() && req.user) {
-    res.json({ 
+    // Log successful authentication
+    console.log('/me endpoint - User authenticated:', req.user.username);
+    
+    // Touch the session to reset expiration time
+    req.session.touch();
+    
+    // Return user info
+    return res.json({ 
       user: {
-        id: req.user._id,
+        _id: req.user._id,
         username: req.user.username,
         email: req.user.email
-      }
+      },
+      sessionId: req.sessionID
     });
+  } else if (req.session && req.session.userId) {
+    // Fallback: check if we have userId in session but Passport authentication failed
+    try {
+      // Try to retrieve user from database directly
+      const user = await User.findById(req.session.userId);
+      if (user) {
+        console.log('/me endpoint - Session user found, but Passport auth failed. Restoring session for:', user.username);
+        
+        // Re-establish authentication
+        req.login(user, (err) => {
+          if (err) {
+            console.error('Error re-establishing authentication:', err);
+            return res.status(401).json({ error: 'Session recovery failed' });
+          }
+          
+          // Return user info
+          return res.json({ 
+            user: {
+              _id: user._id,
+              username: user.username,
+              email: user.email
+            },
+            sessionId: req.sessionID,
+            recovered: true
+          });
+        });
+      } else {
+        console.log('/me endpoint - Session user ID present but user not found in database');
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+    } catch (error) {
+      console.error('/me endpoint - Error looking up session user:', error);
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
   } else {
-    res.status(401).json({ error: 'Not authenticated' });
+    // Not authenticated
+    console.log('/me endpoint - User not authenticated');
+    return res.status(401).json({ 
+      error: 'Not authenticated',
+      sessionPresent: !!req.session,
+      cookiesPresent: !!req.headers.cookie
+    });
   }
 });
 
 app.get('/', (req, res) => {
     res.send('Hello World');
+});
+
+// Health check endpoint - useful for testing CORS and connectivity
+app.get('/health', (req, res) => {
+  const sessionActive = req.session && req.sessionID;
+  const userAuthenticated = req.isAuthenticated();
+  
+  // Log request details for debugging
+  console.log('Health check request from:', req.headers.origin);
+  console.log('Health check session:', sessionActive ? 'active' : 'inactive');
+  console.log('Health check user:', userAuthenticated ? 'authenticated' : 'unauthenticated');
+  
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    session: {
+      active: sessionActive,
+      id: req.sessionID || null
+    },
+    auth: {
+      authenticated: userAuthenticated,
+      user: userAuthenticated ? req.user.username : null
+    },
+    cors: {
+      origin: req.headers.origin || 'not specified',
+      allowedOrigins: [
+        'https://easyearn-frontend4.vercel.app',
+        'https://easyearn-backend-4.onrender.com',
+        'https://easyearn-adminpanel2.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://localhost:8080',
+        'http://localhost:8081'
+      ]
+    }
+  });
 });
 
 // Debug endpoint to test database connection
