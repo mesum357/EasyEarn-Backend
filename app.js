@@ -44,7 +44,7 @@ app.use(express.static('public'));
 // Define allowed origins based on environment
 const allowedOrigins = [
   // Production frontends
-  'https://easyearn-frontend4.vercel.app',
+  'https://easyearn-frontend5.vercel.app',
   'https://easyearn-adminpanel2.vercel.app',
   // Backend (for API docs or testing)
   'https://easyearn-backend-4.onrender.com',
