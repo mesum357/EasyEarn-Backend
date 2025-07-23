@@ -50,6 +50,7 @@ const allowedOrigins = [
   'https://easyearn-adminpanel2.vercel.app',
   // Backend (for API docs or testing)
   'https://easyearn-backend-4.onrender.com',
+  'https://easyearn-backend-production.up.railway.app', // Railway backend URL
   // Development origins
   'http://localhost:3000',
   'http://localhost:3005',
@@ -1081,6 +1082,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   res.json({ url: fileUrl });
 });
 
-app.listen(3005, "0.0.0.0", () => {
-    console.log('Server is running on port 3005');
+const PORT = process.env.PORT || 3005;
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server is running on port ${PORT}`);
 });
