@@ -60,7 +60,10 @@ const allowedOrigins = [
   'http://127.0.0.1:8080',
   'http://127.0.0.1:5173',
   'http://192.168.1.7:8080',
-  'http://192.168.1.7:3000'
+  'http://192.168.1.7:3000',
+  // VPS IP addresses
+  'http://31.97.39.46:8080',
+  'http://31.97.39.46:3000',
 ];
 
 // Log allowed origins for debugging
@@ -1062,6 +1065,6 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   res.json({ url: fileUrl });
 });
 
-app.listen(3005, () => {
+app.listen(3005, "0.0.0.0", () => {
     console.log('Server is running on port 3005');
 });
