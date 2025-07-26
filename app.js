@@ -1086,10 +1086,6 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
 });
 
 const PORT = process.env.PORT || 3005;
-<<<<<<< HEAD
-app.listen(PORT, () => {
-=======
 app.listen(PORT, "0.0.0.0", () => {
->>>>>>> 6c5058b0497081b5bba1d5c0faddd3bdfd5e670d
     console.log(`Server is running on port ${PORT}`);
 });
