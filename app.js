@@ -48,6 +48,9 @@ const allowedOrigins = [
   'https://easyearn-frontend6.vercel.app',  // Added newer frontend domain
   'https://easyearn-frontend5-5s029wzy7-ahmads-projects-9a0217f0.vercel.app', // Preview deployment
   'https://easyearn-adminpanel2.vercel.app',
+  // Railway deployments
+  'https://caring-meat-production.up.railway.app', // Admin Dashboard
+  'https://easyearn-frontend-production.up.railway.app', // Main Frontend
   // Backend (for API docs or testing)
   'https://easyearn-backend-4.onrender.com',
   // Development origins
@@ -1062,6 +1065,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   res.json({ url: fileUrl });
 });
 
-app.listen(3005, () => {
-    console.log('Server is running on port 3005');
+const PORT = process.env.PORT || 3005;
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });
