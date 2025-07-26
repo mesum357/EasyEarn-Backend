@@ -51,6 +51,7 @@ const allowedOrigins = [
   // Railway deployments
   'https://caring-meat-production.up.railway.app', // Admin Dashboard
   'https://easyearn-frontend-production.up.railway.app', // Main Frontend
+  'https://easyearn-frontend-production-760e.up.railway.app', // Current Frontend URL
   // Backend (for API docs or testing)
   'https://easyearn-backend-4.onrender.com',
   'https://easyearn-backend-production.up.railway.app', // Railway backend URL
@@ -733,15 +734,7 @@ app.get('/health', (req, res) => {
     },
     cors: {
       origin: req.headers.origin || 'not specified',
-      allowedOrigins: [
-        'https://easyearn-frontend4.vercel.app',
-        'https://easyearn-backend-4.onrender.com',
-        'https://easyearn-adminpanel2.vercel.app',
-        'http://localhost:3000',
-        'http://localhost:5173',
-        'http://localhost:8080',
-        'http://localhost:8081'
-      ]
+      allowedOrigins: allowedOrigins.slice(0, 10) // Show first 10 allowed origins
     }
   });
 });
