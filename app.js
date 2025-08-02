@@ -45,11 +45,20 @@ app.use(express.static('public'));
 const allowedOrigins = [
   // Production URLs
   'https://easyearn-frontend4.vercel.app',
-  'https://easyearn-backend-4.onrender.com',
+  'https://easyearn-frontend8.vercel.app',  // Added newer frontend domain
+  'https://easyearn-frontend5-5s029wzy7-ahmads-projects-9a0217f0.vercel.app', // Preview deployment
   'https://easyearn-adminpanel2.vercel.app',
-  'https://easyearn-adminpanel-production.up.railway.app',
-  'https://easyearn-adminpanel-production.up.railway.app/',
-  // Development URLs
+  // Railway deployments
+  'https://caring-meat-production.up.railway.app', // Admin Dashboard
+  'https://easyearn-frontend-production.up.railway.app', // Main Frontend
+  'https://easyearn-frontend-production-760e.up.railway.app', // Actual Frontend URL
+  'https://gleaming-miracle-production.up.railway.app', // Project Frontend URL
+  'https://easyearn-adminpanel-production.up.railway.app', // Railway Admin Panel
+  'https://easyearn-adminpanel-production.up.railway.app/', // Railway Admin Panel with slash
+  // Backend (for API docs or testing)
+  'https://easyearn-backend-4.onrender.com',
+  'https://easyearn-backend-production.up.railway.app', // Railway backend URL
+  // Development origins
   'http://localhost:3000',
   'http://localhost:3005',
   'http://localhost:5173',
@@ -61,7 +70,10 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3005',
   'http://192.168.1.7:8080',
-  'http://192.168.1.7:3000'
+  'http://192.168.1.7:3000',
+  // VPS IP addresses
+  'http://31.97.39.46:8080',
+  'http://31.97.39.46:3000',
 ];
 
 // Log allowed origins for debugging
@@ -83,7 +95,8 @@ app.use(cors({
       return callback(null, origin); // Return the specific origin that was allowed
     } else {
       console.log(`CORS blocked origin: ${origin}`);
-      return callback(new Error(`Origin ${origin} not allowed by CORS policy`));
+      // Instead of throwing an error, just reject with false
+      return callback(null, false);
     }
   },
   credentials: true, // Critical for cookies and authentication
@@ -215,9 +228,24 @@ console.log('Session store configured with options:', {
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Debug middleware to log session info
+// Error handling for unhandled promise rejections and uncaught exceptions
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't crash the server, just log the error
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Don't crash the server, just log the error
+});
+
+// Debug middleware to log session info (reduced logging)
 app.use((req, res, next) => {
-  if (req.path !== '/api/my-participations' && req.path !== '/me') {
+  // Only log non-frequent endpoints and exclude health checks
+  if (req.path !== '/api/my-participations' && 
+      req.path !== '/me' && 
+      req.path !== '/api/notifications' && 
+      req.path !== '/health') {
     console.log(`${req.method} ${req.path} - Session ID: ${req.sessionID}, Authenticated: ${req.isAuthenticated()}, User: ${req.user ? req.user.username : 'none'}`);
   }
   next();
@@ -902,15 +930,7 @@ app.get('/health', (req, res) => {
     },
     cors: {
       origin: req.headers.origin || 'not specified',
-      allowedOrigins: [
-        'https://easyearn-frontend4.vercel.app',
-        'https://easyearn-backend-4.onrender.com',
-        'https://easyearn-adminpanel2.vercel.app',
-        'http://localhost:3000',
-        'http://localhost:5173',
-        'http://localhost:8080',
-        'http://localhost:8081'
-      ]
+      allowedOrigins: allowedOrigins.slice(0, 10) // Show first 10 allowed origins
     }
   });
 });
@@ -2301,16 +2321,6 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   res.json({ url: fileUrl });
 });
 
-// Image upload endpoint for deposit receipts
-app.post('/api/upload-receipt', upload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
-  // Return the file URL
-  const fileUrl = `${req.get('host')}/uploads/${req.file.filename}`;
-  res.json({ url: fileUrl });
-});
-
 // Screenshot upload endpoint for task submissions
 app.post('/api/upload-screenshot', upload.single('file'), (req, res) => {
   if (!req.file) {
@@ -2998,6 +3008,6 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
 });
 
 const PORT = process.env.PORT || 3005;
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server is running on port ${PORT}`);
 });
