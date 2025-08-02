@@ -51,7 +51,8 @@ const allowedOrigins = [
   // Railway deployments
   'https://caring-meat-production.up.railway.app', // Admin Dashboard
   'https://easyearn-frontend-production.up.railway.app', // Main Frontend
-  'https://easyearn-frontend-production-760e.up.railway.app', // Actual Frontend URL
+  'https://easyearn-frontend-production-760e.up.railway.app', // Previous Frontend URL
+  'https://easyearn-frontend-production-5a04.up.railway.app', // Current Frontend URL
   'https://gleaming-miracle-production.up.railway.app', // Project Frontend URL
   'https://easyearn-adminpanel-production.up.railway.app', // Railway Admin Panel
   'https://easyearn-adminpanel-production.up.railway.app/', // Railway Admin Panel with slash
