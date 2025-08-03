@@ -660,7 +660,7 @@ app.get('/verify-email', async (req, res) => {
             user.verificationToken = undefined;
             await user.save();
             
-            // Handle referral bonus if user was referred
+            // Handle referral completion if user was referred
             if (user.referredBy) {
                 const referral = await Referral.findOne({ 
                     referrer: user.referredBy, 
@@ -669,19 +669,11 @@ app.get('/verify-email', async (req, res) => {
                 });
                 
                 if (referral) {
-                    // Update referral status to completed
+                    // Update referral status to completed (no bonus given)
                     referral.status = 'completed';
                     await referral.save();
                     
-                    // Give $5 bonus to the referrer
-                    const referrer = await User.findById(user.referredBy);
-                    if (referrer) {
-                        referrer.balance = (referrer.balance || 0) + 5;
-                        await referrer.save();
-                        
-                        console.log(`Referral bonus of $5 given to ${referrer.username} for referring ${user.username}`);
-                        console.log(`Referrer balance updated from ${(referrer.balance - 5)} to ${referrer.balance}`);
-                    }
+                    console.log(`Referral completed: ${user.referredBy} referred ${user.username} (no bonus given)`);
                 }
             }
             
@@ -1001,7 +993,7 @@ app.post('/forgot-password', async (req, res) => {
   const user = await User.findOne({ email });
   if (!user) {
     // For security, always respond with success
-    return res.status(200).json({ message: 'If your email is registered, you’ll receive a reset link shortly.' });
+    return res.status(200).json({ message: 'If your email is registered, you'll receive a reset link shortly.' });
   }
   // Generate reset token
   const resetToken = crypto.randomBytes(32).toString('hex');
@@ -1017,7 +1009,7 @@ app.post('/forgot-password', async (req, res) => {
     subject: 'Password Reset Request',
     html: `<p>You requested a password reset. Click the link below to reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>If you did not request this, you can ignore this email.</p>`
   });
-  res.status(200).json({ message: 'If your email is registered, you’ll receive a reset link shortly.' });
+  res.status(200).json({ message: 'If your email is registered, you'll receive a reset link shortly.' });
 });
 
 // Reset Password: Update password
@@ -1331,7 +1323,16 @@ app.put('/api/deposits/:id/confirm', ensureAuthenticated, async (req, res) => {
     const user = await User.findById(deposit.userId);
     if (user) {
       user.balance += deposit.amount;
-      user.hasDeposited = true;
+      
+      // Check total deposit amount to determine hasDeposited status
+      const totalDeposits = await Deposit.aggregate([
+        { $match: { userId: deposit.userId, status: 'confirmed' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+      const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
+      
+      // Set hasDeposited to true only if total deposit amount is >= $10
+      user.hasDeposited = totalDepositAmount >= 10;
       await user.save();
     }
 
@@ -1521,7 +1522,16 @@ app.put('/api/admin/deposits/:id/confirm', async (req, res) => {
     const user = await User.findById(deposit.userId);
     if (user) {
       user.balance += deposit.amount;
-      user.hasDeposited = true;
+      
+      // Check total deposit amount to determine hasDeposited status
+      const totalDeposits = await Deposit.aggregate([
+        { $match: { userId: deposit.userId, status: 'confirmed' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+      const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
+      
+      // Set hasDeposited to true only if total deposit amount is >= $10
+      user.hasDeposited = totalDepositAmount >= 10;
       await user.save();
     }
 
@@ -2092,7 +2102,7 @@ app.post('/api/verify-email', async (req, res) => {
     user.verificationToken = undefined;
     await user.save();
     
-    // Handle referral bonus if user was referred
+    // Handle referral completion if user was referred
     if (user.referredBy) {
       const referral = await Referral.findOne({ 
         referrer: user.referredBy, 
@@ -2101,20 +2111,11 @@ app.post('/api/verify-email', async (req, res) => {
       });
       
       if (referral) {
-        // Update referral status to completed
+        // Update referral status to completed (no bonus given)
         referral.status = 'completed';
         await referral.save();
         
-        // Give $5 bonus to the referrer
-        const referrer = await User.findById(user.referredBy);
-        if (referrer) {
-          const oldBalance = referrer.balance || 0;
-          referrer.balance = oldBalance + 5;
-          await referrer.save();
-          
-          console.log(`Referral bonus of $5 given to ${referrer.username} for referring ${user.username}`);
-          console.log(`Referrer balance updated from ${oldBalance} to ${referrer.balance}`);
-        }
+        console.log(`Referral completed: ${user.referredBy} referred ${user.username} (no bonus given)`);
       }
     }
     
@@ -2209,20 +2210,11 @@ app.post('/api/admin/verify-user', async (req, res) => {
       });
       
       if (referral) {
-        // Update referral status to completed
+        // Update referral status to completed (no bonus given)
         referral.status = 'completed';
         await referral.save();
         
-        // Give $5 bonus to the referrer
-        const referrer = await User.findById(user.referredBy);
-        if (referrer) {
-          const oldBalance = referrer.balance || 0;
-          referrer.balance = oldBalance + 5;
-          await referrer.save();
-          
-          console.log(`Referral bonus of $5 given to ${referrer.username} for referring ${user.username}`);
-          console.log(`Referrer balance updated from ${oldBalance} to ${referrer.balance}`);
-        }
+        console.log(`Referral completed: ${user.referredBy} referred ${user.username} (no bonus given)`);
       }
     }
     
@@ -2389,7 +2381,7 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
         periodStart,
         periodEnd,
         requirements: {
-          referrals: { required: 2, completed: 0, met: false },
+          referrals: { required: 1, completed: 0, met: false }, // Changed from 2 to 1
           deposit: { required: 10, completed: 0, met: false }, // Amount in dollars
           luckyDraw: { required: 1, completed: 0, met: false }
         }
@@ -2418,25 +2410,22 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
     const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
     console.log('Total deposit amount:', totalDepositAmount);
 
-    // Check lucky draw participations in current month
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    
-    const luckyDrawInMonth = await Participation.countDocuments({
+    // Check lucky draw participations in current 15-day period
+    const luckyDrawInPeriod = await Participation.countDocuments({
       userId,
-      createdAt: { $gte: monthStart, $lte: monthEnd }
+      createdAt: { $gte: periodStart, $lte: periodEnd }
     });
-    console.log('Lucky draw participations in month:', luckyDrawInMonth);
+    console.log('Lucky draw participations in period:', luckyDrawInPeriod);
 
     // Update requirement status
     requirement.requirements.referrals.completed = referralsInPeriod;
-    requirement.requirements.referrals.met = referralsInPeriod >= 2;
+    requirement.requirements.referrals.met = referralsInPeriod >= 1; // Changed from 2 to 1
     
     requirement.requirements.deposit.completed = totalDepositAmount;
     requirement.requirements.deposit.met = totalDepositAmount >= 10;
     
-    requirement.requirements.luckyDraw.completed = luckyDrawInMonth;
-    requirement.requirements.luckyDraw.met = luckyDrawInMonth >= 1;
+    requirement.requirements.luckyDraw.completed = luckyDrawInPeriod;
+    requirement.requirements.luckyDraw.met = luckyDrawInPeriod >= 1;
 
     requirement.allRequirementsMet = 
       requirement.requirements.referrals.met &&
