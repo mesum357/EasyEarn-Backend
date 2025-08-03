@@ -1077,6 +1077,25 @@ const participationSchema = new mongoose.Schema({
 });
 const Participation = mongoose.model('Participation', participationSchema);
 
+// Lucky Draw Schema
+const luckyDrawSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: { type: String, required: true },
+  prize: { type: String, required: true },
+  entryFee: { type: Number, required: true },
+  maxParticipants: { type: Number, required: true },
+  currentParticipants: { type: Number, default: 0 },
+  status: { 
+    type: String, 
+    enum: ['scheduled', 'active', 'paused', 'completed'], 
+    default: 'scheduled' 
+  },
+  startDate: { type: Date, required: true },
+  endDate: { type: Date, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+const LuckyDraw = mongoose.model('LuckyDraw', luckyDrawSchema);
+
 // Fund Request Schema
 const fundRequestSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: false },
@@ -3026,6 +3045,99 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
   } catch (error) {
     console.error('Error processing withdrawal request:', error);
     res.status(500).json({ success: false, error: 'Failed to process withdrawal request' });
+  }
+});
+
+// ==================== ADMIN LUCKY DRAW ENDPOINTS ====================
+
+// Get all lucky draws (for admin)
+app.get('/api/admin/lucky-draws', async (req, res) => {
+  try {
+    const luckyDraws = await LuckyDraw.find({}).sort({ createdAt: -1 });
+    res.json({
+      success: true,
+      luckyDraws: luckyDraws
+    });
+  } catch (error) {
+    console.error('Error fetching lucky draws:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch lucky draws' });
+  }
+});
+
+// Create new lucky draw (for admin)
+app.post('/api/admin/lucky-draws', async (req, res) => {
+  try {
+    const { title, description, prize, entryFee, maxParticipants, startDate, endDate } = req.body;
+    
+    const luckyDraw = new LuckyDraw({
+      title,
+      description,
+      prize,
+      entryFee,
+      maxParticipants,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate)
+    });
+    
+    await luckyDraw.save();
+    
+    res.status(201).json({
+      success: true,
+      luckyDraw: luckyDraw
+    });
+  } catch (error) {
+    console.error('Error creating lucky draw:', error);
+    res.status(500).json({ success: false, error: 'Failed to create lucky draw' });
+  }
+});
+
+// Delete lucky draw (for admin)
+app.delete('/api/admin/lucky-draws/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const luckyDraw = await LuckyDraw.findByIdAndDelete(id);
+    
+    if (!luckyDraw) {
+      return res.status(404).json({ success: false, error: 'Lucky draw not found' });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Lucky draw deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting lucky draw:', error);
+    res.status(500).json({ success: false, error: 'Failed to delete lucky draw' });
+  }
+});
+
+// Update lucky draw status (for admin)
+app.patch('/api/admin/lucky-draws/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    if (!['scheduled', 'active', 'paused', 'completed'].includes(status)) {
+      return res.status(400).json({ success: false, error: 'Invalid status' });
+    }
+    
+    const luckyDraw = await LuckyDraw.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    );
+    
+    if (!luckyDraw) {
+      return res.status(404).json({ success: false, error: 'Lucky draw not found' });
+    }
+    
+    res.json({
+      success: true,
+      luckyDraw: luckyDraw
+    });
+  } catch (error) {
+    console.error('Error updating lucky draw status:', error);
+    res.status(500).json({ success: false, error: 'Failed to update lucky draw status' });
   }
 });
 
