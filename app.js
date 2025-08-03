@@ -3467,14 +3467,21 @@ app.post('/api/admin/lucky-draws', async (req, res) => {
   try {
     const { title, description, prize, entryFee, maxParticipants, startDate, endDate } = req.body;
     
+    const now = new Date();
+    const startDateTime = new Date(startDate);
+    
+    // Automatically set status to 'active' if start date is in the past or present
+    const status = startDateTime <= now ? 'active' : 'scheduled';
+    
     const luckyDraw = new LuckyDraw({
       title,
       description,
       prize,
       entryFee,
       maxParticipants,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate)
+      startDate: startDateTime,
+      endDate: new Date(endDate),
+      status: status
     });
     
     await luckyDraw.save();
@@ -3580,7 +3587,10 @@ app.get('/api/lucky-draws', async (req, res) => {
   try {
     const now = new Date();
     const luckyDraws = await LuckyDraw.find({
-      status: 'active',
+      $or: [
+        { status: 'active' },
+        { status: 'scheduled', startDate: { $lte: now } } // Include scheduled draws that should be active
+      ],
       startDate: { $lte: now },
       endDate: { $gt: now }
     }).sort({ createdAt: -1 });
@@ -3674,10 +3684,12 @@ app.post('/api/lucky-draws/:id/participate', ensureAuthenticated, async (req, re
 
 // ==================== AUTOMATIC CLEANUP ====================
 
-// Function to cleanup expired lucky draws
+// Function to cleanup expired lucky draws and activate scheduled ones
 const cleanupExpiredLuckyDraws = async () => {
   try {
     const now = new Date();
+    
+    // Mark expired draws as completed
     const expiredDraws = await LuckyDraw.find({
       endDate: { $lt: now },
       status: { $ne: 'completed' }
@@ -3687,8 +3699,20 @@ const cleanupExpiredLuckyDraws = async () => {
       await LuckyDraw.findByIdAndUpdate(draw._id, { status: 'completed' });
       console.log(`Marked lucky draw ${draw._id} as completed (expired)`);
     }
+    
+    // Activate scheduled draws that should be active
+    const scheduledDraws = await LuckyDraw.find({
+      status: 'scheduled',
+      startDate: { $lte: now },
+      endDate: { $gt: now }
+    });
+    
+    for (const draw of scheduledDraws) {
+      await LuckyDraw.findByIdAndUpdate(draw._id, { status: 'active' });
+      console.log(`Activated lucky draw ${draw._id} (scheduled -> active)`);
+    }
   } catch (error) {
-    console.error('Error cleaning up expired lucky draws:', error);
+    console.error('Error cleaning up lucky draws:', error);
   }
 };
 
