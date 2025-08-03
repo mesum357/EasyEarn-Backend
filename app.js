@@ -1068,10 +1068,12 @@ app.post('/reset-password', async (req, res) => {
 // Participation Schema
 const participationSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: false },
-  prizeId: { type: Number, required: true },
-  prizeTitle: { type: String, required: true },
-  binanceUID: { type: String, required: true },
-  receiptUrl: { type: String, required: true },
+  prizeId: { type: Number, required: false }, // For legacy participations
+  prizeTitle: { type: String, required: false }, // For legacy participations
+  binanceUID: { type: String, required: false }, // For legacy participations
+  receiptUrl: { type: String, required: false }, // For legacy participations
+  luckyDrawId: { type: mongoose.Schema.Types.ObjectId, ref: 'LuckyDraw', required: false }, // For new lucky draw participations
+  walletAddress: { type: String, required: false }, // For new lucky draw participations
   submittedButton: { type: Boolean, default: null }, // null means pending, true means approved, false means rejected
   createdAt: { type: Date, default: Date.now }
 });
@@ -3111,6 +3113,40 @@ app.delete('/api/admin/lucky-draws/:id', async (req, res) => {
   }
 });
 
+// Update lucky draw (for admin)
+app.put('/api/admin/lucky-draws/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description, prize, entryFee, maxParticipants, startDate, endDate } = req.body;
+    
+    const luckyDraw = await LuckyDraw.findByIdAndUpdate(
+      id,
+      {
+        title,
+        description,
+        prize,
+        entryFee,
+        maxParticipants,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate)
+      },
+      { new: true }
+    );
+    
+    if (!luckyDraw) {
+      return res.status(404).json({ success: false, error: 'Lucky draw not found' });
+    }
+    
+    res.json({
+      success: true,
+      luckyDraw: luckyDraw
+    });
+  } catch (error) {
+    console.error('Error updating lucky draw:', error);
+    res.status(500).json({ success: false, error: 'Failed to update lucky draw' });
+  }
+});
+
 // Update lucky draw status (for admin)
 app.patch('/api/admin/lucky-draws/:id/status', async (req, res) => {
   try {
@@ -3140,6 +3176,128 @@ app.patch('/api/admin/lucky-draws/:id/status', async (req, res) => {
     res.status(500).json({ success: false, error: 'Failed to update lucky draw status' });
   }
 });
+
+// ==================== PUBLIC LUCKY DRAW ENDPOINTS ====================
+
+// Get active lucky draws (for frontend)
+app.get('/api/lucky-draws', async (req, res) => {
+  try {
+    const now = new Date();
+    const luckyDraws = await LuckyDraw.find({
+      status: 'active',
+      startDate: { $lte: now },
+      endDate: { $gt: now }
+    }).sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      luckyDraws: luckyDraws
+    });
+  } catch (error) {
+    console.error('Error fetching active lucky draws:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch lucky draws' });
+  }
+});
+
+// Get specific lucky draw by ID (for frontend)
+app.get('/api/lucky-draws/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const luckyDraw = await LuckyDraw.findById(id);
+    
+    if (!luckyDraw) {
+      return res.status(404).json({ success: false, error: 'Lucky draw not found' });
+    }
+    
+    res.json({
+      success: true,
+      luckyDraw: luckyDraw
+    });
+  } catch (error) {
+    console.error('Error fetching lucky draw:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch lucky draw' });
+  }
+});
+
+// Participate in lucky draw
+app.post('/api/lucky-draws/:id/participate', ensureAuthenticated, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { walletAddress } = req.body;
+    
+    const luckyDraw = await LuckyDraw.findById(id);
+    if (!luckyDraw) {
+      return res.status(404).json({ success: false, error: 'Lucky draw not found' });
+    }
+    
+    // Check if lucky draw is active
+    const now = new Date();
+    if (luckyDraw.status !== 'active' || now < luckyDraw.startDate || now > luckyDraw.endDate) {
+      return res.status(400).json({ success: false, error: 'Lucky draw is not active' });
+    }
+    
+    // Check if user has already participated
+    const existingParticipation = await Participation.findOne({
+      user: req.user._id,
+      luckyDrawId: id
+    });
+    
+    if (existingParticipation) {
+      return res.status(400).json({ success: false, error: 'You have already participated in this lucky draw' });
+    }
+    
+    // Check if max participants reached
+    if (luckyDraw.currentParticipants >= luckyDraw.maxParticipants) {
+      return res.status(400).json({ success: false, error: 'Maximum participants reached for this lucky draw' });
+    }
+    
+    // Create participation
+    const participation = new Participation({
+      user: req.user._id,
+      luckyDrawId: id,
+      walletAddress,
+      submittedButton: null // Pending admin approval
+    });
+    
+    await participation.save();
+    
+    // Update lucky draw participant count
+    await LuckyDraw.findByIdAndUpdate(id, {
+      $inc: { currentParticipants: 1 }
+    });
+    
+    res.status(201).json({
+      success: true,
+      participation: participation
+    });
+  } catch (error) {
+    console.error('Error participating in lucky draw:', error);
+    res.status(500).json({ success: false, error: 'Failed to participate in lucky draw' });
+  }
+});
+
+// ==================== AUTOMATIC CLEANUP ====================
+
+// Function to cleanup expired lucky draws
+const cleanupExpiredLuckyDraws = async () => {
+  try {
+    const now = new Date();
+    const expiredDraws = await LuckyDraw.find({
+      endDate: { $lt: now },
+      status: { $ne: 'completed' }
+    });
+    
+    for (const draw of expiredDraws) {
+      await LuckyDraw.findByIdAndUpdate(draw._id, { status: 'completed' });
+      console.log(`Marked lucky draw ${draw._id} as completed (expired)`);
+    }
+  } catch (error) {
+    console.error('Error cleaning up expired lucky draws:', error);
+  }
+};
+
+// Run cleanup every hour
+setInterval(cleanupExpiredLuckyDraws, 60 * 60 * 1000);
 
 const PORT = process.env.PORT || 3005;
 app.listen(PORT, "0.0.0.0", () => {
