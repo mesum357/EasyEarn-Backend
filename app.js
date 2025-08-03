@@ -993,7 +993,7 @@ app.post('/forgot-password', async (req, res) => {
   const user = await User.findOne({ email });
   if (!user) {
     // For security, always respond with success
-    return res.status(200).json({ message: 'If your email is registered, you'll receive a reset link shortly.' });
+    return res.status(200).json({ message: 'If your email is registered, you\'ll receive a reset link shortly.' });
   }
   // Generate reset token
   const resetToken = crypto.randomBytes(32).toString('hex');
@@ -1009,7 +1009,7 @@ app.post('/forgot-password', async (req, res) => {
     subject: 'Password Reset Request',
     html: `<p>You requested a password reset. Click the link below to reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>If you did not request this, you can ignore this email.</p>`
   });
-  res.status(200).json({ message: 'If your email is registered, you'll receive a reset link shortly.' });
+  res.status(200).json({ message: 'If your email is registered, you\'ll receive a reset link shortly.' });
 });
 
 // Reset Password: Update password
