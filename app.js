@@ -568,8 +568,8 @@ app.post("/register", async function(req, res) {
         User.register({ 
             username: email, 
             email: email, 
-            verified: false, 
-            verificationToken,
+            verified: DISABLE_EMAILS ? true : false, // Auto-verify for testing when emails are disabled
+            verificationToken: DISABLE_EMAILS ? undefined : verificationToken,
             referredBy: referrer ? referrer._id : null
         }, password, async function(err, user) {
         if (err) {
@@ -591,9 +591,14 @@ app.post("/register", async function(req, res) {
                 const referral = new Referral({
                     referrer: referrer._id,
                     referred: user._id,
-                    status: 'pending' // Will be completed after email verification
+                    status: DISABLE_EMAILS ? 'completed' : 'pending' // Auto-complete for testing when emails are disabled
                 });
                 await referral.save();
+                
+                // Log referral completion for testing
+                if (DISABLE_EMAILS) {
+                    console.log(`📧 EMAIL DISABLED: Referral auto-completed - ${referrer.username} referred ${user.username}`);
+                }
             }
 
                                 // Send verification email
@@ -618,8 +623,11 @@ app.post("/register", async function(req, res) {
             
             return res.status(201).json({ 
                 success: true, 
-                message: 'Registration successful! Please check your email to verify your account. Referral bonus will be given after email verification.',
-                referralCode: userReferralCode
+                message: DISABLE_EMAILS 
+                    ? 'Registration successful! Your account has been automatically verified for testing. You can now log in.'
+                    : 'Registration successful! Please check your email to verify your account. Referral bonus will be given after email verification.',
+                referralCode: userReferralCode,
+                autoVerified: DISABLE_EMAILS
             });
         });
     } catch (error) {
