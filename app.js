@@ -32,6 +32,12 @@ const transporter = nodemailer.createTransport({
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'massux357@gmail.com';
 
+// Email testing flag - set to true to disable email sending for testing
+const DISABLE_EMAILS = process.env.DISABLE_EMAILS === 'true' || true; // Currently disabled for testing
+
+// Log email status on startup
+console.log(`📧 Email sending is ${DISABLE_EMAILS ? 'DISABLED' : 'ENABLED'} for testing`);
+
 // Trust proxy for deployment platforms like Render
 if (process.env.NODE_ENV === 'production') {
     app.set('trust proxy', 1);
@@ -592,12 +598,18 @@ app.post("/register", async function(req, res) {
 
                                 // Send verification email
             const verifyUrl = `${req.protocol}://${req.get('host')}/verify-email?token=${verificationToken}`;
-            await transporter.sendMail({
-                from: process.env.EMAIL_USER,
-                to: user.username,
-                subject: 'Verify your email for EasyEarn',
-                html: `<h2>Welcome, ${user.username}!</h2><p>Please verify your email by clicking the link below:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`
-            });
+            
+            if (DISABLE_EMAILS) {
+                console.log('📧 EMAIL DISABLED: Would send verification email to:', user.username);
+                console.log('📧 Verification URL:', verifyUrl);
+            } else {
+                await transporter.sendMail({
+                    from: process.env.EMAIL_USER,
+                    to: user.username,
+                    subject: 'Verify your email for EasyEarn',
+                    html: `<h2>Welcome, ${user.username}!</h2><p>Please verify your email by clicking the link below:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`
+                });
+            }
         
         // Keep user unverified until they click the verification link
         // user.verified = true; // REMOVED: Auto-verification
@@ -1003,12 +1015,18 @@ app.post('/forgot-password', async (req, res) => {
   // Send email
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
   const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to: user.email,
-    subject: 'Password Reset Request',
-    html: `<p>You requested a password reset. Click the link below to reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>If you did not request this, you can ignore this email.</p>`
-  });
+  
+  if (DISABLE_EMAILS) {
+    console.log('📧 EMAIL DISABLED: Would send password reset email to:', user.email);
+    console.log('📧 Reset URL:', resetUrl);
+  } else {
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: user.email,
+      subject: 'Password Reset Request',
+      html: `<p>You requested a password reset. Click the link below to reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>If you did not request this, you can ignore this email.</p>`
+    });
+  }
   res.status(200).json({ message: 'If your email is registered, you\'ll receive a reset link shortly.' });
 });
 
@@ -2154,12 +2172,18 @@ app.post('/api/resend-verification', async (req, res) => {
     
     // Send verification email
     const verifyUrl = `${req.protocol}://${req.get('host')}/verify-email?token=${verificationToken}`;
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: user.email,
-      subject: 'Verify your email for EasyEarn',
-      html: `<h2>Welcome, ${user.username}!</h2><p>Please verify your email by clicking the link below:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`
-    });
+    
+    if (DISABLE_EMAILS) {
+      console.log('📧 EMAIL DISABLED: Would resend verification email to:', user.email);
+      console.log('📧 Verification URL:', verifyUrl);
+    } else {
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: user.email,
+        subject: 'Verify your email for EasyEarn',
+        html: `<h2>Welcome, ${user.username}!</h2><p>Please verify your email by clicking the link below:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`
+      });
+    }
     
     res.json({ 
       success: true, 
