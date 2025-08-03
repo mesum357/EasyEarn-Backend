@@ -3050,6 +3050,7 @@ app.get('/api/tasks', ensureAuthenticated, async (req, res) => {
       category: task.category,
       timeEstimate: task.timeEstimate,
       requirements: task.requirements,
+      url: task.url,
       status: submissionMap[task._id.toString()] || 'available',
       createdAt: task.createdAt
     }));
@@ -3150,6 +3151,7 @@ app.get('/api/admin/tasks', async (req, res) => {
         category: task.category,
         timeEstimate: task.timeEstimate,
         requirements: task.requirements,
+        url: task.url,
         status: task.status,
         createdAt: task.createdAt,
         updatedAt: task.updatedAt
@@ -3164,7 +3166,7 @@ app.get('/api/admin/tasks', async (req, res) => {
 // Create new task (for admin)
 app.post('/api/admin/tasks', async (req, res) => {
   try {
-    const { title, description, reward, category, timeEstimate, requirements } = req.body;
+    const { title, description, reward, category, timeEstimate, requirements, url } = req.body;
     
     // Validate required fields
     if (!title || !description || !reward || !category || !timeEstimate) {
@@ -3177,7 +3179,8 @@ app.post('/api/admin/tasks', async (req, res) => {
       reward: Number(reward),
       category,
       timeEstimate,
-      requirements: requirements || []
+      requirements: requirements || [],
+      url: url || ""
     });
 
     await task.save();
@@ -3185,17 +3188,18 @@ app.post('/api/admin/tasks', async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Task created successfully',
-      task: {
-        id: task._id,
-        title: task.title,
-        description: task.description,
-        reward: task.reward,
-        category: task.category,
-        timeEstimate: task.timeEstimate,
-        requirements: task.requirements,
-        status: task.status,
-        createdAt: task.createdAt
-      }
+              task: {
+          id: task._id,
+          title: task.title,
+          description: task.description,
+          reward: task.reward,
+          category: task.category,
+          timeEstimate: task.timeEstimate,
+          requirements: task.requirements,
+          url: task.url,
+          status: task.status,
+          createdAt: task.createdAt
+        }
     });
   } catch (error) {
     console.error('Error creating task:', error);
@@ -3207,7 +3211,7 @@ app.post('/api/admin/tasks', async (req, res) => {
 app.put('/api/admin/tasks/:taskId', async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { title, description, reward, category, timeEstimate, requirements, status } = req.body;
+    const { title, description, reward, category, timeEstimate, requirements, status, url } = req.body;
 
     const task = await Task.findById(taskId);
     if (!task) {
@@ -3222,6 +3226,7 @@ app.put('/api/admin/tasks/:taskId', async (req, res) => {
     if (timeEstimate) task.timeEstimate = timeEstimate;
     if (requirements) task.requirements = requirements;
     if (status) task.status = status;
+    if (url !== undefined) task.url = url;
     
     task.updatedAt = new Date();
     await task.save();
@@ -3237,6 +3242,7 @@ app.put('/api/admin/tasks/:taskId', async (req, res) => {
         category: task.category,
         timeEstimate: task.timeEstimate,
         requirements: task.requirements,
+        url: task.url,
         status: task.status,
         createdAt: task.createdAt,
         updatedAt: task.updatedAt
