@@ -359,6 +359,10 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    hasDeposited: {
+        type: Boolean,
+        default: false
+    },
     referralCode: {
         type: String,
         unique: true,
@@ -713,14 +717,17 @@ app.get('/verify-email', async (req, res) => {
                     referred: user._id,
                     status: 'pending'
                 });
-                
-                if (referral) {
+                if (referral && user.hasDeposited) { // Check if user has deposited $10
+                    referral.status = 'completed'; // Update referral status to completed
+                    await referral.save();
+                    console.log(`Referral completed: ${user.referredBy} referred ${user.username} deposit $10`);
+                } else if (referral) {
                     // Keep referral as pending - will be completed when user deposits $10
                     console.log(`Referral created: ${user.referredBy} referred ${user.username} - status: pending (waiting for $10 deposit)`);
                 }
             }
-            
-            res.redirect('http://localhost:3005/verify-email?success=Email verified successfully! You can now log in.');
+    
+    res.redirect('http://localhost:3005/verify-email?success=Email verified successfully! You can now log in.');
         } catch (error) {
             console.error('Email verification error:', error);
             res.redirect('http://localhost:3005/verify-email?error=Verification failed. Please try again.');
@@ -875,7 +882,11 @@ app.get('/me', async (req, res) => {
   // Enhanced authentication check using both Passport and session data
   if (req.isAuthenticated() && req.user) {
     // Log successful authentication
-    console.log('/me endpoint - User authenticated:', req.user.username);
+    console.log('👤 /me endpoint - User authenticated:', req.user.username);
+    console.log(`   User ID: ${req.user._id}`);
+    console.log(`   Balance: $${req.user.balance || 0}`);
+    console.log(`   hasDeposited: ${req.user.hasDeposited || false}`);
+    console.log(`   Tasks Status: ${(req.user.hasDeposited || false) ? '🔓 UNLOCKED' : '🔒 LOCKED'}`);
     
     // Touch the session to reset expiration time
     req.session.touch();
@@ -887,6 +898,7 @@ app.get('/me', async (req, res) => {
         username: req.user.username,
         email: req.user.email,
         balance: req.user.balance || 0,
+        hasDeposited: req.user.hasDeposited || false,
         referralCode: req.user.referralCode
       },
       sessionId: req.sessionID
@@ -897,15 +909,20 @@ app.get('/me', async (req, res) => {
       // Try to retrieve user from database directly
       const user = await User.findById(req.session.userId);
       if (user) {
-        console.log('/me endpoint - Session user found, but Passport auth failed. Restoring session for:', user.username);
+        console.log('🔄 /me endpoint - Session user found, but Passport auth failed. Restoring session for:', user.username);
+        console.log(`   User ID: ${user._id}`);
+        console.log(`   Balance: $${user.balance || 0}`);
+        console.log(`   hasDeposited: ${user.hasDeposited || false}`);
+        console.log(`   Tasks Status: ${(user.hasDeposited || false) ? '🔓 UNLOCKED' : '🔒 LOCKED'}`);
         
         // Re-establish authentication
         req.login(user, (err) => {
           if (err) {
-            console.error('Error re-establishing authentication:', err);
+            console.error('❌ Error re-establishing authentication:', err);
             return res.status(401).json({ error: 'Session recovery failed' });
           }
           
+          console.log('✅ Session recovery successful for user:', user.username);
           // Return user info
           return res.json({ 
             user: {
@@ -913,6 +930,7 @@ app.get('/me', async (req, res) => {
               username: user.username,
               email: user.email,
               balance: user.balance || 0,
+              hasDeposited: user.hasDeposited || false,
               referralCode: user.referralCode
             },
             sessionId: req.sessionID,
@@ -1307,8 +1325,15 @@ app.post('/api/deposits', ensureAuthenticated, async (req, res) => {
     const { amount, receiptUrl, transactionHash, notes } = req.body;
     const userId = req.user._id;
 
+    console.log(`💰 DEPOSIT REQUEST: User ${req.user.username} (${userId}) submitting deposit request`);
+    console.log(`   Amount: $${amount}`);
+    console.log(`   Receipt URL: ${receiptUrl}`);
+    console.log(`   Transaction Hash: ${transactionHash}`);
+    console.log(`   Notes: ${notes}`);
+
     // Validate amount
     if (!amount || amount < 10) {
+      console.log(`❌ DEPOSIT REJECTED: Amount $${amount} is below minimum $10`);
       return res.status(400).json({ 
         success: false, 
         error: 'Minimum deposit amount is $10' 
@@ -1326,6 +1351,12 @@ app.post('/api/deposits', ensureAuthenticated, async (req, res) => {
 
     await deposit.save();
 
+    console.log(`✅ DEPOSIT REQUEST CREATED: Deposit ID ${deposit._id} saved successfully`);
+    console.log(`   User: ${req.user.username}`);
+    console.log(`   Amount: $${amount}`);
+    console.log(`   Status: ${deposit.status}`);
+    console.log(`   Created At: ${deposit.createdAt}`);
+
     res.status(201).json({
       success: true,
       message: 'Deposit request submitted successfully',
@@ -1338,7 +1369,7 @@ app.post('/api/deposits', ensureAuthenticated, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error creating deposit:', error);
+    console.error('❌ ERROR CREATING DEPOSIT:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to create deposit request',
@@ -1376,49 +1407,116 @@ app.put('/api/deposits/:id/confirm', ensureAuthenticated, async (req, res) => {
     const { id } = req.params;
     const { notes } = req.body;
 
+    console.log(`🔧 ADMIN DEPOSIT APPROVAL: Admin ${req.user.username} approving deposit ${id}`);
+    console.log(`   Admin Notes: ${notes}`);
+
     const deposit = await Deposit.findById(id);
     if (!deposit) {
+      console.log(`❌ DEPOSIT NOT FOUND: Deposit ID ${id} not found`);
       return res.status(404).json({ 
         success: false, 
         error: 'Deposit not found' 
       });
     }
 
-    // Update deposit status
-    deposit.status = 'confirmed';
-    deposit.confirmedAt = new Date();
-    if (notes) deposit.notes = notes;
+    console.log(`📋 DEPOSIT DETAILS: Found deposit for user ${deposit.userId}`);
+    console.log(`   Amount: $${deposit.amount}`);
+    console.log(`   Current Status: ${deposit.status}`);
+    console.log(`   Created At: ${deposit.createdAt}`);
 
     // Update user balance and check for task unlocking
     const user = await User.findById(deposit.userId);
     if (user) {
-      // Check total deposit amount to determine hasDeposited status
-      const totalDeposits = await Deposit.aggregate([
-        { $match: { userId: deposit.userId, status: 'confirmed' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-      const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
+      console.log(`👤 USER FOUND: ${user.username} (${user._id})`);
+      console.log(`   Current Balance: $${user.balance}`);
+      console.log(`   Current hasDeposited: ${user.hasDeposited}`);
+
+      // Update deposit status
+      deposit.status = 'confirmed';
+      deposit.confirmedAt = new Date();
+      if (notes) deposit.notes = notes;
+
+      // Save the deposit
+      await deposit.save();
+      console.log(`✅ DEPOSIT CONFIRMED: Deposit ${id} status updated to 'confirmed'`);
       
-      // For the initial $10 deposit, only unlock tasks, don't add to balance
-      if (totalDepositAmount === 10 && deposit.amount === 10) {
-        // This is the initial $10 deposit - only unlock tasks
+      // Check if this is the first deposit of at least $10
+      const existingConfirmedDeposits = await Deposit.find({ 
+        userId: deposit.userId, 
+        status: 'confirmed',
+        _id: { $ne: deposit._id } // Exclude current deposit
+      });
+      
+      const isFirstDeposit = existingConfirmedDeposits.length === 0;
+      const isMinimumAmount = deposit.amount >= 10;
+      
+      console.log(`🔍 DEPOSIT ANALYSIS: User ${user.username}`);
+      console.log(`   This Deposit: $${deposit.amount}`);
+      console.log(`   Is First Deposit: ${isFirstDeposit}`);
+      console.log(`   Is Minimum Amount ($10+): ${isMinimumAmount}`);
+      console.log(`   Previous Balance: $${user.balance}`);
+      console.log(`   Previous hasDeposited: ${user.hasDeposited}`);
+      
+      const previousHasDeposited = user.hasDeposited;
+      const previousBalance = user.balance;
+      
+      if (isFirstDeposit && isMinimumAmount) {
+        // First deposit of $10+ unlocks tasks but doesn't add to balance
         user.hasDeposited = true;
-        console.log(`Initial $10 deposit confirmed for user ${user.username} - tasks unlocked, no balance added`);
+        // Balance calculation: total deposits - 10
+        const totalConfirmedDeposits = await Deposit.aggregate([
+          { $match: { userId: deposit.userId, status: 'confirmed' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
+        user.balance = Math.max(0, totalDeposits - 10);
+        console.log(`✅ FIRST DEPOSIT: Tasks unlocked! Balance = ${totalDeposits} - 10 = $${user.balance}`);
+      } else if (!isFirstDeposit) {
+        // Subsequent deposits add to balance normally
+        const totalConfirmedDeposits = await Deposit.aggregate([
+          { $match: { userId: deposit.userId, status: 'confirmed' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
+        user.balance = Math.max(0, totalDeposits - 10);
+        user.hasDeposited = true; // Ensure tasks remain unlocked
+        console.log(`✅ SUBSEQUENT DEPOSIT: Balance = ${totalDeposits} - 10 = $${user.balance}`);
       } else {
-        // For subsequent deposits or different amounts, add to balance normally
-        user.balance += deposit.amount;
-        user.hasDeposited = totalDepositAmount >= 10;
-        console.log(`Deposit of $${deposit.amount} confirmed for user ${user.username} - balance updated`);
+        // First deposit but less than $10 - doesn't unlock tasks
+        console.log(`⚠️ FIRST DEPOSIT TOO SMALL: $${deposit.amount} < $10, tasks remain locked`);
+        user.balance += deposit.amount; // Add to balance normally
       }
       
       await user.save();
       
+      console.log(`✅ USER UPDATED: ${user.username}`);
+      console.log(`   Balance: $${previousBalance} → $${user.balance}`);
+      console.log(`   hasDeposited: ${previousHasDeposited} → ${user.hasDeposited}`);
+      console.log(`   Tasks Status: ${user.hasDeposited ? '🔓 UNLOCKED' : '🔒 LOCKED'}`);
+      
+      // Update the session user object if the user is logged in
+      if (req.session && req.session.passport && req.session.passport.user === user._id.toString()) {
+        req.user = user;
+        console.log('✅ SESSION UPDATED: User session object updated');
+      } else {
+        console.log('⚠️ SESSION UPDATE FAILED: Could not update session');
+        console.log('   Session Info:', {
+          hasSession: !!req.session,
+          hasPassport: !!(req.session && req.session.passport),
+          sessionUserId: req.session?.passport?.user,
+          actualUserId: user._id.toString(),
+          isUserEndpoint: true
+        });
+      }
+      
       // Check if this deposit completes any pending referrals
       await checkAndCompleteReferrals(user._id);
+      console.log(`✅ REFERRAL CHECK: Completed referral check for user ${user.username}`);
+    } else {
+      console.log(`❌ USER NOT FOUND: User ID ${deposit.userId} not found`);
     }
 
-    await deposit.save();
-
+    console.log(`🎉 DEPOSIT APPROVAL COMPLETE: Deposit ${id} successfully confirmed`);
     res.json({
       success: true,
       message: 'Deposit confirmed successfully',
@@ -1426,7 +1524,7 @@ app.put('/api/deposits/:id/confirm', ensureAuthenticated, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error confirming deposit:', error);
+    console.error('❌ ERROR CONFIRMING DEPOSIT:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to confirm deposit',
@@ -1586,49 +1684,116 @@ app.put('/api/admin/deposits/:id/confirm', async (req, res) => {
     const { id } = req.params;
     const { notes } = req.body;
 
+    console.log(`🔧 ADMIN PANEL DEPOSIT APPROVAL: Admin panel approving deposit ${id}`);
+    console.log(`   Admin Notes: ${notes}`);
+
     const deposit = await Deposit.findById(id);
     if (!deposit) {
+      console.log(`❌ DEPOSIT NOT FOUND: Deposit ID ${id} not found`);
       return res.status(404).json({ 
         success: false, 
         error: 'Deposit not found' 
       });
     }
 
-    // Update deposit status
-    deposit.status = 'confirmed';
-    deposit.confirmedAt = new Date();
-    if (notes) deposit.notes = notes;
+    console.log(`📋 DEPOSIT DETAILS: Found deposit for user ${deposit.userId}`);
+    console.log(`   Amount: $${deposit.amount}`);
+    console.log(`   Current Status: ${deposit.status}`);
+    console.log(`   Created At: ${deposit.createdAt}`);
 
     // Update user balance and check for task unlocking
     const user = await User.findById(deposit.userId);
     if (user) {
-      // Check total deposit amount to determine hasDeposited status
-      const totalDeposits = await Deposit.aggregate([
-        { $match: { userId: deposit.userId, status: 'confirmed' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-      const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
+      console.log(`👤 USER FOUND: ${user.username} (${user._id})`);
+      console.log(`   Current Balance: $${user.balance}`);
+      console.log(`   Current hasDeposited: ${user.hasDeposited}`);
+
+      // Update deposit status
+      deposit.status = 'confirmed';
+      deposit.confirmedAt = new Date();
+      if (notes) deposit.notes = notes;
+
+      // Save the deposit
+      await deposit.save();
+      console.log(`✅ DEPOSIT CONFIRMED: Deposit ${id} status updated to 'confirmed'`);
       
-      // For the initial $10 deposit, only unlock tasks, don't add to balance
-      if (totalDepositAmount === 10 && deposit.amount === 10) {
-        // This is the initial $10 deposit - only unlock tasks
+      // Check if this is the first deposit of at least $10
+      const existingConfirmedDeposits = await Deposit.find({ 
+        userId: deposit.userId, 
+        status: 'confirmed',
+        _id: { $ne: deposit._id } // Exclude current deposit
+      });
+      
+      const isFirstDeposit = existingConfirmedDeposits.length === 0;
+      const isMinimumAmount = deposit.amount >= 10;
+      
+      console.log(`🔍 ADMIN DEPOSIT ANALYSIS: User ${user.username}`);
+      console.log(`   This Deposit: $${deposit.amount}`);
+      console.log(`   Is First Deposit: ${isFirstDeposit}`);
+      console.log(`   Is Minimum Amount ($10+): ${isMinimumAmount}`);
+      console.log(`   Previous Balance: $${user.balance}`);
+      console.log(`   Previous hasDeposited: ${user.hasDeposited}`);
+      
+      const previousHasDeposited = user.hasDeposited;
+      const previousBalance = user.balance;
+      
+      if (isFirstDeposit && isMinimumAmount) {
+        // First deposit of $10+ unlocks tasks but doesn't add to balance
         user.hasDeposited = true;
-        console.log(`Initial $10 deposit confirmed for user ${user.username} - tasks unlocked, no balance added`);
+        // Balance calculation: total deposits - 10
+        const totalConfirmedDeposits = await Deposit.aggregate([
+          { $match: { userId: deposit.userId, status: 'confirmed' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
+        user.balance = Math.max(0, totalDeposits - 10);
+        console.log(`✅ ADMIN FIRST DEPOSIT: Tasks unlocked! Balance = ${totalDeposits} - 10 = $${user.balance}`);
+      } else if (!isFirstDeposit) {
+        // Subsequent deposits add to balance normally
+        const totalConfirmedDeposits = await Deposit.aggregate([
+          { $match: { userId: deposit.userId, status: 'confirmed' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
+        user.balance = Math.max(0, totalDeposits - 10);
+        user.hasDeposited = true; // Ensure tasks remain unlocked
+        console.log(`✅ ADMIN SUBSEQUENT DEPOSIT: Balance = ${totalDeposits} - 10 = $${user.balance}`);
       } else {
-        // For subsequent deposits or different amounts, add to balance normally
-        user.balance += deposit.amount;
-        user.hasDeposited = totalDepositAmount >= 10;
-        console.log(`Deposit of $${deposit.amount} confirmed for user ${user.username} - balance updated`);
+        // First deposit but less than $10 - doesn't unlock tasks
+        console.log(`⚠️ ADMIN FIRST DEPOSIT TOO SMALL: $${deposit.amount} < $10, tasks remain locked`);
+        user.balance += deposit.amount; // Add to balance normally
       }
       
       await user.save();
       
+      console.log(`✅ ADMIN USER UPDATED: ${user.username}`);
+      console.log(`   Balance: $${previousBalance} → $${user.balance}`);
+      console.log(`   hasDeposited: ${previousHasDeposited} → ${user.hasDeposited}`);
+      console.log(`   Tasks Status: ${user.hasDeposited ? '🔓 UNLOCKED' : '🔒 LOCKED'}`);
+      
+      // Update the session user object if the user is logged in
+      if (req.session && req.session.passport && req.session.passport.user === user._id.toString()) {
+        req.user = user;
+        console.log('✅ ADMIN SESSION UPDATED: User session object updated');
+      } else {
+        console.log('⚠️ ADMIN SESSION UPDATE FAILED: Could not update session');
+        console.log('   Session Info:', {
+          hasSession: !!req.session,
+          hasPassport: !!(req.session && req.session.passport),
+          sessionUserId: req.session?.passport?.user,
+          actualUserId: user._id.toString(),
+          isAdminEndpoint: true
+        });
+      }
+      
       // Check if this deposit completes any pending referrals
       await checkAndCompleteReferrals(user._id);
+      console.log(`✅ ADMIN REFERRAL CHECK: Completed referral check for user ${user.username}`);
+    } else {
+      console.log(`❌ ADMIN USER NOT FOUND: User ID ${deposit.userId} not found`);
     }
 
-    await deposit.save();
-
+    console.log(`🎉 ADMIN DEPOSIT APPROVAL COMPLETE: Deposit ${id} successfully confirmed`);
     res.json({
       success: true,
       message: 'Deposit confirmed successfully',
@@ -1636,7 +1801,7 @@ app.put('/api/admin/deposits/:id/confirm', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error confirming deposit:', error);
+    console.error('❌ ADMIN ERROR CONFIRMING DEPOSIT:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to confirm deposit',
@@ -2024,13 +2189,16 @@ app.get('/api/referrals/my-info', ensureAuthenticated, async (req, res) => {
     // Get referral link - use user ID for referral links
     const referralLink = `${req.protocol}://${req.get('host')}/signup?ref=${user._id}`;
 
-    // Get recent referrals
+    // Get recent referrals - show ALL referrals (including pending ones)
     const recentReferrals = await Referral.find({ referrer: user._id })
-      .populate('referred', 'username email createdAt')
+      .populate({
+        path: 'referred',
+        select: 'username email createdAt hasDeposited'
+      })
       .sort({ createdAt: -1 })
       .limit(10);
 
-    // Get total referrals count
+    // Get total referrals count (all referrals)
     const totalReferrals = await Referral.countDocuments({ referrer: user._id });
 
     res.json({
@@ -2050,22 +2218,22 @@ app.get('/api/referrals/stats', ensureAuthenticated, async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Get total referrals
+    // Get total referrals (count all referrals)
     const totalReferrals = await Referral.countDocuments({ referrer: userId });
 
-    // Get pending referrals
+    // Get pending referrals (count all pending referrals)
     const pendingReferrals = await Referral.countDocuments({ 
       referrer: userId, 
       status: 'pending' 
     });
 
-    // Get completed referrals
+    // Get completed referrals (count all completed referrals)
     const completedReferrals = await Referral.countDocuments({ 
       referrer: userId, 
       status: 'completed' 
     });
 
-    // Get this month's referrals
+    // Get this month's referrals (count all referrals this month)
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
@@ -2087,7 +2255,7 @@ app.get('/api/referrals/stats', ensureAuthenticated, async (req, res) => {
   }
 });
 
-// Get all referrals for a user (with pagination)
+// Get all referrals for a user (with pagination) - only deposited users
 app.get('/api/referrals/all', ensureAuthenticated, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -2095,10 +2263,56 @@ app.get('/api/referrals/all', ensureAuthenticated, async (req, res) => {
     const skip = (page - 1) * limit;
 
     const referrals = await Referral.find({ referrer: req.user._id })
-      .populate('referred', 'username email createdAt verified')
+      .populate({
+        path: 'referred',
+        select: 'username email createdAt verified hasDeposited',
+        match: { hasDeposited: true } // Only include users who have deposited
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .then(referrals => referrals.filter(ref => ref.referred)); // Filter out null referred users
+
+    // Count total referrals that have deposited
+    const total = await Referral.aggregate([
+      { $match: { referrer: req.user._id } },
+      { $lookup: { from: 'users', localField: 'referred', foreignField: '_id', as: 'referredUser' } },
+      { $match: { 'referredUser.hasDeposited': true } },
+      { $count: 'total' }
+    ]).then(result => result[0]?.total || 0);
+
+    res.json({
+      referrals,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalReferrals: total,
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching all referrals:', err);
+    res.status(500).json({ error: 'Failed to fetch referrals' });
+  }
+});
+
+// Get all referrals for a user (with pagination) - including pending ones
+app.get('/api/referrals/all-with-pending', ensureAuthenticated, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const referrals = await Referral.find({ referrer: req.user._id })
+      .populate({
+        path: 'referred',
+        select: 'username email createdAt verified hasDeposited'
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .then(referrals => referrals.filter(ref => ref.referred)); // Filter out null referred users
 
     const total = await Referral.countDocuments({ referrer: req.user._id });
 
@@ -2113,7 +2327,7 @@ app.get('/api/referrals/all', ensureAuthenticated, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Error fetching all referrals:', err);
+    console.error('Error fetching all referrals including pending:', err);
     res.status(500).json({ error: 'Failed to fetch referrals' });
   }
 });
