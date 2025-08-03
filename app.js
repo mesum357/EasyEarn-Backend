@@ -1070,7 +1070,7 @@ const participationSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: false },
   prizeId: { type: Number, required: true },
   prizeTitle: { type: String, required: true },
-  walletAddress: { type: String, required: true },
+  binanceUID: { type: String, required: true },
   receiptUrl: { type: String, required: true },
   submittedButton: { type: Boolean, default: null }, // null means pending, true means approved, false means rejected
   createdAt: { type: Date, default: Date.now }
@@ -1206,7 +1206,7 @@ const WithdrawalRequest = mongoose.model('WithdrawalRequest', withdrawalRequestS
 app.post('/api/participate', ensureAuthenticated, async (req, res) => {
   try {
     console.log('Participate: req.user =', req.user);
-    const { prizeId, prizeTitle, walletAddress, receiptUrl } = req.body;
+    const { prizeId, prizeTitle, binanceUID, receiptUrl } = req.body;
     const userId = req.user ? req.user._id : null;
     
     // Check if user already has a participation for this prize
@@ -1215,7 +1215,7 @@ app.post('/api/participate', ensureAuthenticated, async (req, res) => {
     if (existingParticipation) {
       // Update existing participation
       existingParticipation.prizeTitle = prizeTitle;
-      existingParticipation.walletAddress = walletAddress;
+      existingParticipation.binanceUID = binanceUID;
       existingParticipation.receiptUrl = receiptUrl;
       existingParticipation.submittedButton = null; // Reset to pending
       existingParticipation.createdAt = new Date();
@@ -1228,7 +1228,7 @@ app.post('/api/participate', ensureAuthenticated, async (req, res) => {
         user: userId,
         prizeId,
         prizeTitle,
-        walletAddress,
+        binanceUID,
         receiptUrl,
         submittedButton: null // null means pending approval
       });
