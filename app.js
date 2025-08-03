@@ -2894,16 +2894,16 @@ app.get('/api/admin/task-submissions', async (req, res) => {
       success: true,
       submissions: submissions.map(submission => ({
         id: submission._id,
-        task: {
+        task: submission.taskId ? {
           id: submission.taskId._id,
           title: submission.taskId.title,
           reward: submission.taskId.reward
-        },
-        user: {
+        } : null,
+        user: submission.userId ? {
           id: submission.userId._id,
           username: submission.userId.username,
           email: submission.userId.email
-        },
+        } : null,
         status: submission.status,
         screenshotUrl: submission.screenshotUrl,
         notes: submission.notes,
@@ -2942,7 +2942,7 @@ app.put('/api/admin/task-submissions/:submissionId/review', async (req, res) => 
     submission.reviewNotes = reviewNotes;
 
     // If approved, add reward to user's balance
-    if (status === 'approved') {
+    if (status === 'approved' && submission.userId && submission.taskId) {
       const user = await User.findById(submission.userId._id);
       if (user) {
         user.balance += submission.taskId.reward;
