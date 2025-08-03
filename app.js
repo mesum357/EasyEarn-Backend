@@ -646,6 +646,32 @@ function generateReferralCode() {
     return result;
 }
 
+// Function to check and complete referrals when a user deposits $10
+async function checkAndCompleteReferrals(userId) {
+    try {
+        const user = await User.findById(userId);
+        if (!user || !user.hasDeposited) {
+            return; // User hasn't deposited $10 yet
+        }
+
+        // Find all pending referrals for this user
+        const pendingReferrals = await Referral.find({
+            referred: userId,
+            status: 'pending'
+        });
+
+        for (const referral of pendingReferrals) {
+            // Update referral status to completed
+            referral.status = 'completed';
+            await referral.save();
+            
+            console.log(`Referral completed: User ${user.username} (${userId}) has deposited $10, completing referral from ${referral.referrer}`);
+        }
+    } catch (error) {
+        console.error('Error checking and completing referrals:', error);
+    }
+}
+
 app.get('/verify-email', async (req, res) => {
     const { token, error, success } = req.query;
     
@@ -680,7 +706,7 @@ app.get('/verify-email', async (req, res) => {
             user.verificationToken = undefined;
             await user.save();
             
-            // Handle referral completion if user was referred
+            // Handle referral - keep as pending until user deposits $10
             if (user.referredBy) {
                 const referral = await Referral.findOne({ 
                     referrer: user.referredBy, 
@@ -689,11 +715,8 @@ app.get('/verify-email', async (req, res) => {
                 });
                 
                 if (referral) {
-                    // Update referral status to completed (no bonus given)
-                    referral.status = 'completed';
-                    await referral.save();
-                    
-                    console.log(`Referral completed: ${user.referredBy} referred ${user.username} (no bonus given)`);
+                    // Keep referral as pending - will be completed when user deposits $10
+                    console.log(`Referral created: ${user.referredBy} referred ${user.username} - status: pending (waiting for $10 deposit)`);
                 }
             }
             
@@ -1366,11 +1389,9 @@ app.put('/api/deposits/:id/confirm', ensureAuthenticated, async (req, res) => {
     deposit.confirmedAt = new Date();
     if (notes) deposit.notes = notes;
 
-    // Update user balance
+    // Update user balance and check for task unlocking
     const user = await User.findById(deposit.userId);
     if (user) {
-      user.balance += deposit.amount;
-      
       // Check total deposit amount to determine hasDeposited status
       const totalDeposits = await Deposit.aggregate([
         { $match: { userId: deposit.userId, status: 'confirmed' } },
@@ -1378,9 +1399,22 @@ app.put('/api/deposits/:id/confirm', ensureAuthenticated, async (req, res) => {
       ]);
       const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
       
-      // Set hasDeposited to true only if total deposit amount is >= $10
-      user.hasDeposited = totalDepositAmount >= 10;
+      // For the initial $10 deposit, only unlock tasks, don't add to balance
+      if (totalDepositAmount === 10 && deposit.amount === 10) {
+        // This is the initial $10 deposit - only unlock tasks
+        user.hasDeposited = true;
+        console.log(`Initial $10 deposit confirmed for user ${user.username} - tasks unlocked, no balance added`);
+      } else {
+        // For subsequent deposits or different amounts, add to balance normally
+        user.balance += deposit.amount;
+        user.hasDeposited = totalDepositAmount >= 10;
+        console.log(`Deposit of $${deposit.amount} confirmed for user ${user.username} - balance updated`);
+      }
+      
       await user.save();
+      
+      // Check if this deposit completes any pending referrals
+      await checkAndCompleteReferrals(user._id);
     }
 
     await deposit.save();
@@ -1565,11 +1599,9 @@ app.put('/api/admin/deposits/:id/confirm', async (req, res) => {
     deposit.confirmedAt = new Date();
     if (notes) deposit.notes = notes;
 
-    // Update user balance
+    // Update user balance and check for task unlocking
     const user = await User.findById(deposit.userId);
     if (user) {
-      user.balance += deposit.amount;
-      
       // Check total deposit amount to determine hasDeposited status
       const totalDeposits = await Deposit.aggregate([
         { $match: { userId: deposit.userId, status: 'confirmed' } },
@@ -1577,9 +1609,22 @@ app.put('/api/admin/deposits/:id/confirm', async (req, res) => {
       ]);
       const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
       
-      // Set hasDeposited to true only if total deposit amount is >= $10
-      user.hasDeposited = totalDepositAmount >= 10;
+      // For the initial $10 deposit, only unlock tasks, don't add to balance
+      if (totalDepositAmount === 10 && deposit.amount === 10) {
+        // This is the initial $10 deposit - only unlock tasks
+        user.hasDeposited = true;
+        console.log(`Initial $10 deposit confirmed for user ${user.username} - tasks unlocked, no balance added`);
+      } else {
+        // For subsequent deposits or different amounts, add to balance normally
+        user.balance += deposit.amount;
+        user.hasDeposited = totalDepositAmount >= 10;
+        console.log(`Deposit of $${deposit.amount} confirmed for user ${user.username} - balance updated`);
+      }
+      
       await user.save();
+      
+      // Check if this deposit completes any pending referrals
+      await checkAndCompleteReferrals(user._id);
     }
 
     await deposit.save();
