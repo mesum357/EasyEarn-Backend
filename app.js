@@ -2198,8 +2198,11 @@ app.get('/api/referrals/my-info', ensureAuthenticated, async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(10);
 
-    // Get total referrals count (all referrals)
-    const totalReferrals = await Referral.countDocuments({ referrer: user._id });
+    // Get total referrals count (only confirmed referrals)
+    const totalReferrals = await Referral.countDocuments({ 
+      referrer: user._id,
+      status: 'completed'
+    });
 
     res.json({
       referralCode: user.referralCode,
@@ -2218,8 +2221,11 @@ app.get('/api/referrals/stats', ensureAuthenticated, async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Get total referrals (count all referrals)
-    const totalReferrals = await Referral.countDocuments({ referrer: userId });
+    // Get total referrals (count only confirmed referrals)
+    const totalReferrals = await Referral.countDocuments({ 
+      referrer: userId,
+      status: 'completed'
+    });
 
     // Get pending referrals (count all pending referrals)
     const pendingReferrals = await Referral.countDocuments({ 
