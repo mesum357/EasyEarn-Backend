@@ -2041,7 +2041,18 @@ app.get('/api/admin/dashboard-stats', async (req, res) => {
     
     // Referral statistics
     const totalReferrals = await Referral.countDocuments({});
-    const completedReferrals = await Referral.countDocuments({ status: 'completed' });
+    const completedReferrals = await Referral.aggregate([
+      { $lookup: { 
+        from: 'users', 
+        localField: 'referred', 
+        foreignField: '_id', 
+        as: 'referredUser' 
+      }},
+      { $match: { 
+        'referredUser.hasDeposited': true 
+      }},
+      { $count: 'total' }
+    ]).then(result => result[0]?.total || 0);
     const pendingReferrals = await Referral.countDocuments({ status: 'pending' });
     
     // Withdrawal statistics
@@ -2198,11 +2209,20 @@ app.get('/api/referrals/my-info', ensureAuthenticated, async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(10);
 
-    // Get total referrals count (only confirmed referrals)
-    const totalReferrals = await Referral.countDocuments({ 
-      referrer: user._id,
-      status: 'completed'
-    });
+    // Get total referrals count (only confirmed referrals where referred user has deposited)
+    const totalReferrals = await Referral.aggregate([
+      { $match: { referrer: user._id } },
+      { $lookup: { 
+        from: 'users', 
+        localField: 'referred', 
+        foreignField: '_id', 
+        as: 'referredUser' 
+      }},
+      { $match: { 
+        'referredUser.hasDeposited': true 
+      }},
+      { $count: 'total' }
+    ]).then(result => result[0]?.total || 0);
 
     res.json({
       referralCode: user.referralCode,
@@ -2221,11 +2241,20 @@ app.get('/api/referrals/stats', ensureAuthenticated, async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Get total referrals (count only confirmed referrals)
-    const totalReferrals = await Referral.countDocuments({ 
-      referrer: userId,
-      status: 'completed'
-    });
+    // Get total referrals (count only confirmed referrals where referred user has deposited)
+    const totalReferrals = await Referral.aggregate([
+      { $match: { referrer: userId } },
+      { $lookup: { 
+        from: 'users', 
+        localField: 'referred', 
+        foreignField: '_id', 
+        as: 'referredUser' 
+      }},
+      { $match: { 
+        'referredUser.hasDeposited': true 
+      }},
+      { $count: 'total' }
+    ]).then(result => result[0]?.total || 0);
 
     // Get pending referrals (count all pending referrals)
     const pendingReferrals = await Referral.countDocuments({ 
@@ -2239,16 +2268,27 @@ app.get('/api/referrals/stats', ensureAuthenticated, async (req, res) => {
       status: 'completed' 
     });
 
-    // Get this month's referrals (count all referrals this month)
+    // Get this month's confirmed referrals where the referred user has deposited
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    const thisMonthReferrals = await Referral.countDocuments({
-      referrer: userId,
-      status: 'completed',
-      createdAt: { $gte: startOfMonth }
-    });
+    const thisMonthReferrals = await Referral.aggregate([
+      { $match: { 
+        referrer: userId,
+        createdAt: { $gte: startOfMonth }
+      }},
+      { $lookup: { 
+        from: 'users', 
+        localField: 'referred', 
+        foreignField: '_id', 
+        as: 'referredUser' 
+      }},
+      { $match: { 
+        'referredUser.hasDeposited': true 
+      }},
+      { $count: 'total' }
+    ]).then(result => result[0]?.total || 0);
 
     res.json({
       totalReferrals,
@@ -2713,12 +2753,23 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
     const user = await User.findById(userId);
     console.log('User found:', !!user);
     
-    // Check referrals in this period
-    const referralsInPeriod = await Referral.countDocuments({
-      referrer: userId,
-      status: 'completed',
-      createdAt: { $gte: periodStart, $lte: periodEnd }
-    });
+    // Check confirmed referrals where the referred user has deposited in this period
+    const referralsInPeriod = await Referral.aggregate([
+      { $match: { 
+        referrer: userId,
+        createdAt: { $gte: periodStart, $lte: periodEnd }
+      }},
+      { $lookup: { 
+        from: 'users', 
+        localField: 'referred', 
+        foreignField: '_id', 
+        as: 'referredUser' 
+      }},
+      { $match: { 
+        'referredUser.hasDeposited': true 
+      }},
+      { $count: 'total' }
+    ]).then(result => result[0]?.total || 0);
     console.log('Referrals in period:', referralsInPeriod);
 
     // Check total deposit amount (not count)
