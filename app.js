@@ -2246,6 +2246,7 @@ app.get('/api/referrals/stats', ensureAuthenticated, async (req, res) => {
 
     const thisMonthReferrals = await Referral.countDocuments({
       referrer: userId,
+      status: 'completed',
       createdAt: { $gte: startOfMonth }
     });
 

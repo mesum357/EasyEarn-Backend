@@ -68,6 +68,7 @@ async function testReferralFixes() {
     
     console.log('✅ Stats after referral signup:');
     console.log('   Total Referrals (confirmed only):', afterSignupStatsResponse.data.totalReferrals);
+    console.log('   This Month Referrals (confirmed only):', afterSignupStatsResponse.data.thisMonthReferrals);
     console.log('   Pending Referrals:', afterSignupStatsResponse.data.pendingReferrals);
     console.log('   Completed Referrals:', afterSignupStatsResponse.data.completedReferrals);
 
@@ -93,8 +94,9 @@ async function testReferralFixes() {
     console.log('✅ Total referrals count shows 0 (only confirmed referrals)');
     console.log('✅ Pending referrals count shows 1');
     console.log('✅ Recent referrals shows pending status correctly');
-    console.log('\n📌 Expected Behavior:');
+    console.log('📌 Expected Behavior:');
     console.log('   - Total Referrals = 0 (only counts confirmed after $10 deposit)');
+    console.log('   - This Month Referrals = 0 (only counts confirmed after $10 deposit)');
     console.log('   - Pending Referrals = 1 (waiting for referred user to deposit $10)');
     console.log('   - Recent Referrals shows pending status');
     console.log('   - Once referred user deposits $10, referral becomes confirmed');
