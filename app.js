@@ -2236,6 +2236,79 @@ app.get('/api/referrals/my-info', ensureAuthenticated, async (req, res) => {
   }
 });
 
+// Get user dashboard statistics
+app.get('/api/user/dashboard-stats', ensureAuthenticated, async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // Get user's completed tasks count
+    const completedTasks = await TaskSubmission.countDocuments({ 
+      userId: userId, 
+      status: 'approved' 
+    });
+
+    // Get user's pending tasks count
+    const pendingTasks = await TaskSubmission.countDocuments({ 
+      userId: userId, 
+      status: 'pending' 
+    });
+
+    // Get user's total deposits
+    const totalDeposits = await Deposit.countDocuments({ 
+      userId: userId, 
+      status: 'confirmed' 
+    });
+
+    // Get user's total deposit amount
+    const totalDepositAmount = await Deposit.aggregate([
+      { $match: { userId: userId, status: 'confirmed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]).then(result => result[0]?.total || 0);
+
+    // Get user's lucky draw participations
+    const luckyDrawParticipations = await Participation.countDocuments({ 
+      userId: userId 
+    });
+
+    // Get user's total referrals (confirmed)
+    const totalReferrals = await Referral.aggregate([
+      { $match: { referrer: userId } },
+      { $lookup: { 
+        from: 'users', 
+        localField: 'referred', 
+        foreignField: '_id', 
+        as: 'referredUser' 
+      }},
+      { $match: { 
+        'referredUser.hasDeposited': true 
+      }},
+      { $count: 'total' }
+    ]).then(result => result[0]?.total || 0);
+
+    // Get user's pending referrals
+    const pendingReferrals = await Referral.countDocuments({ 
+      referrer: userId, 
+      status: 'pending' 
+    });
+
+    res.json({
+      success: true,
+      stats: {
+        completedTasks,
+        pendingTasks,
+        totalDeposits,
+        totalDepositAmount,
+        luckyDrawParticipations,
+        totalReferrals,
+        pendingReferrals
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching user dashboard stats:', err);
+    res.status(500).json({ error: 'Failed to fetch user dashboard statistics' });
+  }
+});
+
 // Get user's referral statistics
 app.get('/api/referrals/stats', ensureAuthenticated, async (req, res) => {
   try {
