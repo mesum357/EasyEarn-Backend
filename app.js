@@ -1903,6 +1903,7 @@ const taskSchema = new mongoose.Schema({
   category: { type: String, required: true, enum: ['Social Media', 'App Store', 'Survey', 'Other'] },
   timeEstimate: { type: String, required: true },
   requirements: [{ type: String }],
+  url: { type: String, default: "" },
   status: { type: String, enum: ['active', 'inactive'], default: 'active' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdAt: { type: Date, default: Date.now },

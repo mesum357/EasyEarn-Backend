@@ -1,0 +1,14 @@
+DEPLOYMENT REQUIRED
+
+Changes made:
+- Added 'url' field to Task schema in backend/app.js
+- This fixes the issue where task URLs were not being saved when created from admin panel
+
+To deploy:
+1. Commit and push these changes to the repository
+2. Railway will automatically redeploy the backend
+3. The URL field will then work properly for new tasks
+
+Test after deployment:
+- Create a new task from admin panel with a URL
+- Verify the URL appears in the frontend task page 
