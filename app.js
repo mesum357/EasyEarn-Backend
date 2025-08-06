@@ -164,6 +164,50 @@ const sessionCleanup = async (userId) => {
   }
 };
 
+// JWT token generation for cross-origin authentication
+const generateJWTToken = (user) => {
+  const jwt = require('jsonwebtoken');
+  const secret = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'fallback-jwt-secret';
+  return jwt.sign(
+    { 
+      userId: user._id, 
+      username: user.username,
+      email: user.email 
+    }, 
+    secret, 
+    { expiresIn: '24h' }
+  );
+};
+
+// JWT token verification middleware
+const verifyJWTToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+  
+  const token = authHeader.substring(7);
+  const jwt = require('jsonwebtoken');
+  const secret = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'fallback-jwt-secret';
+  
+  try {
+    const decoded = jwt.verify(token, secret);
+    User.findById(decoded.userId).then(user => {
+      if (user) {
+        req.user = user;
+        req.isAuthenticated = () => true;
+      }
+      next();
+    }).catch(err => {
+      console.error('JWT user lookup error:', err);
+      next();
+    });
+  } catch (err) {
+    console.error('JWT verification error:', err);
+    next();
+  }
+};
+
 // Define cookie settings based on environment
 const cookieSettings = {
   // Always set httpOnly for security
@@ -236,6 +280,9 @@ console.log('Session store configured with options:', {
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Add JWT verification middleware for cross-origin requests
+app.use(verifyJWTToken);
+
 // Error handling for unhandled promise rejections and uncaught exceptions
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
@@ -294,6 +341,12 @@ app.get('/test-session', (req, res) => {
 
 // Debug endpoint for cross-origin cookie testing
 app.get('/debug-auth', (req, res) => {
+  console.log('Debug auth request - Headers:', {
+    origin: req.headers.origin,
+    cookie: req.headers.cookie,
+    authorization: req.headers.authorization
+  });
+  
   // Try to recover session from cookie if session ID doesn't match
   let recoveredSession = false;
   let recoveredUser = null;
@@ -332,7 +385,7 @@ app.get('/debug-auth', (req, res) => {
     isAuthenticated: req.isAuthenticated(),
     hasUser: !!req.user,
     hasSession: !!req.session,
-    cookies: req.headers.cookie,
+    cookies: req.headers.cookie || 'No cookies sent',
     origin: req.headers.origin,
     userAgent: req.headers['user-agent'],
     cookieSettings: {
@@ -341,8 +394,44 @@ app.get('/debug-auth', (req, res) => {
       domain: req.session?.cookie?.domain
     },
     recoveredSession: recoveredSession,
-    recoveredUser: recoveredUser ? recoveredUser.username : null
+    recoveredUser: recoveredUser ? recoveredUser.username : null,
+    allHeaders: Object.keys(req.headers)
   });
+});
+
+// JWT login endpoint for cross-origin authentication
+app.post('/api/login-jwt', function(req, res, next) {
+  console.log('JWT login attempt for:', req.body.email);
+  
+  passport.authenticate('local', function(err, user, info) {
+    if (err) {
+      console.error('JWT login error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    if (!user.verified) {
+      return res.status(401).json({ error: 'Please verify your email before logging in.' });
+    }
+    
+    // Generate JWT token
+    const token = generateJWTToken(user);
+    
+    console.log('JWT login successful for:', user.username);
+    res.json({ 
+      success: true,
+      token: token,
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        balance: user.balance || 0,
+        hasDeposited: user.hasDeposited || false,
+        referralCode: user.referralCode
+      }
+    });
+  })(req, res, next);
 });
 
 // Temporary login endpoint with forced non-secure cookies for testing
