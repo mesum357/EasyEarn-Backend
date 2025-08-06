@@ -294,6 +294,39 @@ app.get('/test-session', (req, res) => {
 
 // Debug endpoint for cross-origin cookie testing
 app.get('/debug-auth', (req, res) => {
+  // Try to recover session from cookie if session ID doesn't match
+  let recoveredSession = false;
+  let recoveredUser = null;
+  
+  if (req.headers.cookie && !req.isAuthenticated()) {
+    const cookieMatch = req.headers.cookie.match(/easyearn\.sid=([^;]+)/);
+    if (cookieMatch && cookieMatch[1] !== req.sessionID) {
+      console.log('Session ID mismatch detected. Attempting recovery...');
+      console.log('Cookie session ID:', cookieMatch[1]);
+      console.log('Server session ID:', req.sessionID);
+      
+      // Try to find the session in the store
+      sessionStore.get(cookieMatch[1], (err, session) => {
+        if (session && session.userId) {
+          console.log('Found session with userId:', session.userId);
+          // Try to recover user
+          User.findById(session.userId).then(user => {
+            if (user) {
+              console.log('Recovered user:', user.username);
+              req.login(user, (err) => {
+                if (!err) {
+                  console.log('Successfully recovered authentication');
+                  recoveredSession = true;
+                  recoveredUser = user;
+                }
+              });
+            }
+          });
+        }
+      });
+    }
+  }
+  
   res.json({
     sessionID: req.sessionID,
     isAuthenticated: req.isAuthenticated(),
@@ -306,7 +339,9 @@ app.get('/debug-auth', (req, res) => {
       secure: req.session?.cookie?.secure,
       sameSite: req.session?.cookie?.sameSite,
       domain: req.session?.cookie?.domain
-    }
+    },
+    recoveredSession: recoveredSession,
+    recoveredUser: recoveredUser ? recoveredUser.username : null
   });
 });
 
@@ -981,8 +1016,57 @@ app.get('/me', async (req, res) => {
       return res.status(401).json({ error: 'Not authenticated' });
     }
   } else {
-    // Not authenticated
-    console.log('/me endpoint - User not authenticated');
+    // Not authenticated - try session recovery
+    console.log('/me endpoint - User not authenticated, attempting recovery...');
+    
+    if (req.headers.cookie) {
+      const cookieMatch = req.headers.cookie.match(/easyearn\.sid=([^;]+)/);
+      if (cookieMatch && cookieMatch[1] !== req.sessionID) {
+        console.log('Session ID mismatch in /me. Cookie ID:', cookieMatch[1], 'Server ID:', req.sessionID);
+        
+        // Try to recover session from the cookie session ID
+        sessionStore.get(cookieMatch[1], async (err, session) => {
+          if (session && session.userId) {
+            try {
+              const user = await User.findById(session.userId);
+              if (user) {
+                console.log('Recovered user in /me:', user.username);
+                req.login(user, (err) => {
+                  if (!err) {
+                    console.log('Successfully recovered authentication in /me');
+                    return res.json({ 
+                      user: {
+                        _id: user._id,
+                        username: user.username,
+                        email: user.email,
+                        balance: user.balance || 0,
+                        hasDeposited: user.hasDeposited || false,
+                        referralCode: user.referralCode
+                      },
+                      sessionId: req.sessionID,
+                      recovered: true
+                    });
+                  } else {
+                    console.error('Failed to recover authentication:', err);
+                    return res.status(401).json({ 
+                      error: 'Not authenticated',
+                      sessionPresent: !!req.session,
+                      cookiesPresent: !!req.headers.cookie,
+                      recoveryFailed: true
+                    });
+                  }
+                });
+                return; // Exit early
+              }
+            } catch (error) {
+              console.error('Error during session recovery:', error);
+            }
+          }
+        });
+      }
+    }
+    
+    // If recovery failed or not attempted
     return res.status(401).json({ 
       error: 'Not authenticated',
       sessionPresent: !!req.session,
