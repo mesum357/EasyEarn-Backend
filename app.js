@@ -185,16 +185,10 @@ if (isProduction) {
   cookieSettings.secure = true;
   console.log('Production environment: Using secure cookies with SameSite=None for cross-origin support');
 } else {
-  // In development, we can be more flexible
-  if (process.env.DISABLE_SECURE_COOKIES === 'true') {
-    cookieSettings.sameSite = 'lax';
-    cookieSettings.secure = false;
-    console.log('Development environment: Using insecure cookies with SameSite=Lax');
-  } else {
-    cookieSettings.sameSite = 'none';
-    cookieSettings.secure = true;
-    console.log('Development environment: Using secure cookies with SameSite=None');
-  }
+  // For cross-origin requests, always use secure settings
+  cookieSettings.sameSite = 'none';
+  cookieSettings.secure = true;
+  console.log('Development environment: Using secure cookies with SameSite=None for cross-origin support');
 }
 
 // Log the cookie settings
@@ -268,9 +262,11 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Expose-Headers', 'Set-Cookie');
     
-    // Force cookie transmission for cross-origin requests
+    // Force cookie transmission for cross-origin requests with proper settings
     if (req.session && req.sessionID) {
-      res.header('Set-Cookie', `${sessionName}=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`);
+      const cookieValue = `${sessionName}=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`;
+      res.header('Set-Cookie', cookieValue);
+      console.log('Setting cross-origin cookie:', cookieValue);
     }
   }
   
