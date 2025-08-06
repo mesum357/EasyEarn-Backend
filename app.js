@@ -38,9 +38,15 @@ const DISABLE_EMAILS = process.env.DISABLE_EMAILS === 'true' || true; // Current
 // Log email status on startup
 console.log(`📧 Email sending is ${DISABLE_EMAILS ? 'DISABLED' : 'ENABLED'} for testing`);
 
-// Trust proxy for deployment platforms like Render
-if (process.env.NODE_ENV === 'production') {
+// Trust proxy for deployment platforms like Railway, Render, Vercel
+// Railway requires trust proxy to be set for proper session handling
+if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
     app.set('trust proxy', 1);
+    console.log('✅ Trust proxy enabled for production environment');
+} else {
+    // For localhost development, we still need some proxy trust for session cookies
+    app.set('trust proxy', 'loopback');
+    console.log('🔧 Trust proxy set to loopback for development');
 }
 
 app.use(express.json());
@@ -49,12 +55,12 @@ app.use(express.static('public'));
 
 // Define allowed origins based on environment
 const allowedOrigins = [
-  // Production URLs
+  // Production URLs - Vercel
   'https://easyearn-frontend4.vercel.app',
   'https://easyearn-frontend8.vercel.app',  // Added newer frontend domain
   'https://easyearn-frontend5-5s029wzy7-ahmads-projects-9a0217f0.vercel.app', // Preview deployment
   'https://easyearn-adminpanel2.vercel.app',
-  // Railway deployments
+  // Railway deployments - Updated with current URLs
   'https://caring-meat-production.up.railway.app', // Admin Dashboard
   'https://easyearn-frontend-production.up.railway.app', // Main Frontend
   'https://easyearn-frontend-production-760e.up.railway.app', // Previous Frontend URL
@@ -62,8 +68,14 @@ const allowedOrigins = [
   'https://gleaming-miracle-production.up.railway.app', // Project Frontend URL
   'https://easyearn-adminpanel-production.up.railway.app', // Railway Admin Panel
   'https://easyearn-adminpanel-production.up.railway.app/', // Railway Admin Panel with slash
+  // Current backend URL - Add your actual frontend URL here
+  'https://easyearn-backend-production-01ac.up.railway.app', // Current backend for testing
+  // Custom domain
   'https://kingeasyearn.com', // Production Frontend URL
-  // Backend (for API docs or testing)
+  // Additional Railway patterns
+  /\.railway\.app$/, // Allow all Railway apps
+  /\.vercel\.app$/, // Allow all Vercel apps
+  // Backend URLs
   'https://easyearn-backend-4.onrender.com',
   'https://easyearn-backend-production.up.railway.app', // Railway backend URL
   // Development origins
@@ -97,8 +109,17 @@ app.use(cors({
       return callback(null, true);
     }
     
-    // Check if origin is allowed
-    if (allowedOrigins.includes(origin)) {
+    // Check if origin is allowed (handle both strings and regex patterns)
+    const isAllowed = allowedOrigins.some(allowedOrigin => {
+      if (typeof allowedOrigin === 'string') {
+        return allowedOrigin === origin;
+      } else if (allowedOrigin instanceof RegExp) {
+        return allowedOrigin.test(origin);
+      }
+      return false;
+    });
+    
+    if (isAllowed) {
       console.log(`CORS allowed origin: ${origin}`);
       return callback(null, origin); // Return the specific origin that was allowed
     } else {
@@ -122,9 +143,20 @@ app.options('*', function(req, res) {
   
   // Set appropriate CORS headers
   const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
+  
+  // Check if origin is allowed (handle both strings and regex patterns)
+  const isAllowed = allowedOrigins.some(allowedOrigin => {
+    if (typeof allowedOrigin === 'string') {
+      return allowedOrigin === origin;
+    } else if (allowedOrigin instanceof RegExp) {
+      return allowedOrigin.test(origin);
+    }
+    return false;
+  });
+  
+  if (isAllowed || !origin) { // Allow requests with no origin as well
     // Set explicit CORS headers for proper cross-domain cookie handling
-    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Origin', origin || '*');
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
@@ -141,10 +173,11 @@ app.options('*', function(req, res) {
 });
 
 // Session configuration
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
 const isLocalDev = !isProduction || process.env.FORCE_LOCAL_DEV === 'true';
 
 console.log('Environment:', process.env.NODE_ENV);
+console.log('Railway Environment:', process.env.RAILWAY_ENVIRONMENT ? 'Set' : 'Not Set');
 console.log('Is Production:', isProduction);
 console.log('Session Store URL:', process.env.MONGODB_URI ? 'Set' : 'Not Set');
 
@@ -235,8 +268,21 @@ if (isProduction) {
   console.log('Development environment: Using secure cookies with SameSite=None for cross-origin support');
 }
 
-// Log the cookie settings
-console.log('Cookie settings:', cookieSettings);
+// Log the cookie settings with detailed analysis
+console.log('🍪 COOKIE CONFIGURATION ANALYSIS:');
+console.log('   Environment:', { NODE_ENV: process.env.NODE_ENV, RAILWAY_ENVIRONMENT: process.env.RAILWAY_ENVIRONMENT });
+console.log('   Is Production:', isProduction);
+console.log('   Is Local Dev:', isLocalDev);
+console.log('   Cookie Settings:', {
+    httpOnly: cookieSettings.httpOnly,
+    secure: cookieSettings.secure,
+    sameSite: cookieSettings.sameSite,
+    path: cookieSettings.path,
+    domain: cookieSettings.domain || 'not set',
+    maxAge: cookieSettings.maxAge,
+    maxAgeHours: Math.round((cookieSettings.maxAge / (1000 * 60 * 60)) * 100) / 100
+});
+console.log('   Session Name:', process.env.SESSION_NAME || 'easyearn.sid');
 
 // Domain setting (optional) - if you want to share cookies across subdomains
 if (process.env.COOKIE_DOMAIN) {
@@ -258,12 +304,14 @@ const sessionStore = MongoStore.create({
 
 app.use(session({
     secret: process.env.SESSION_SECRET || 'fallback-secret-key-change-in-production',
-    resave: false,
+    resave: true, // Changed to true to ensure session is saved
     saveUninitialized: false,
     store: sessionStore,
     cookie: cookieSettings,
     name: process.env.SESSION_NAME || 'easyearn.sid', // Custom session name from env
-    proxy: isProduction // Trust proxy in production
+    proxy: isProduction, // Trust proxy in production
+    rolling: true, // Extend session on every request
+    unset: 'destroy' // Destroy session when unset
 }));
 
 // Get session name for logging and reference
@@ -294,85 +342,107 @@ process.on('uncaughtException', (error) => {
   // Don't crash the server, just log the error
 });
 
-// Debug middleware to log session info (reduced logging)
-app.use((req, res, next) => {
-  // Only log non-frequent endpoints and exclude health checks
-  if (req.path !== '/api/my-participations' && 
-      req.path !== '/me' &&
-      req.path !== '/api/notifications' &&
-      req.path !== '/health') {
-    console.log(`${req.method} ${req.path} - Session ID: ${req.sessionID}, Authenticated: ${req.isAuthenticated()}, User: ${req.user ? req.user.username : 'none'}`);
+// Enhanced debug middleware to log session info and handle session recovery
+app.use(async (req, res, next) => {
+  // Log all requests with detailed session info for debugging
+  console.log(`\n🔍 REQUEST DEBUG: ${req.method} ${req.path}`);
+  console.log(`   Session ID: ${req.sessionID}`);
+  console.log(`   Is Authenticated: ${req.isAuthenticated()}`);
+  console.log(`   User: ${req.user ? req.user.username : 'none'}`);
+  console.log(`   Request Cookies: ${req.headers.cookie || 'none'}`);
+  console.log(`   Origin: ${req.headers.origin || 'none'}`);
+  
+  // Check if session cookie matches current session ID and handle recovery
+  if (req.headers.cookie) {
+    const cookieMatch = req.headers.cookie.match(/easyearn\.sid=([^;]+)/);
+    if (cookieMatch) {
+      const cookieSessionId = cookieMatch[1];
+      if (cookieSessionId !== req.sessionID) {
+        console.log(`   ⚠️ SESSION ID MISMATCH: Cookie=${cookieSessionId}, Server=${req.sessionID}`);
+        
+        // Try to recover the session from the cookie session ID
+        try {
+          const session = await new Promise((resolve, reject) => {
+            sessionStore.get(cookieSessionId, (err, session) => {
+              if (err) reject(err);
+              else resolve(session);
+            });
+          });
+          
+          if (session && session.userId) {
+            console.log(`   🔄 RECOVERING SESSION: Found session for user ${session.userId}`);
+            
+            // Load the user and restore authentication
+            const user = await User.findById(session.userId);
+            if (user) {
+              console.log(`   ✅ SESSION RECOVERY SUCCESS: User ${user.username}`);
+              req.sessionID = cookieSessionId;
+              req.session = session;
+              req.user = user;
+              req.isAuthenticated = () => true;
+            }
+          } else {
+            console.log(`   ❌ SESSION RECOVERY FAILED: No valid session found`);
+          }
+        } catch (error) {
+          console.log(`   ❌ SESSION RECOVERY ERROR: ${error.message}`);
+        }
+      } else {
+        console.log(`   ✅ SESSION ID MATCH: ${cookieSessionId}`);
+      }
+    }
   }
   
   // Add additional headers for cross-origin cookie support
-  if (req.headers.origin && allowedOrigins.includes(req.headers.origin)) {
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Expose-Headers', 'Set-Cookie');
+  if (req.headers.origin) {
+    const isAllowed = allowedOrigins.some(allowedOrigin => {
+      if (typeof allowedOrigin === 'string') {
+        return allowedOrigin === req.headers.origin;
+      } else if (allowedOrigin instanceof RegExp) {
+        return allowedOrigin.test(req.headers.origin);
+      }
+      return false;
+    });
+    if (isAllowed) {
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Expose-Headers', 'Set-Cookie');
+    }
   }
   
   next();
 });
 
-// CRITICAL FIX: Force session cookie on ALL responses for Railway production
+// FIXED: Session cookie middleware - only set cookies for authentication events
 app.use((req, res, next) => {
-  // Skip automatic cookie setting for login endpoint to avoid conflicts
-  if (req.path === '/login' && req.method === 'POST') {
-    return next();
+  // Extract session ID from cookie if present
+  let cookieSessionId = null;
+  if (req.headers.cookie) {
+    const cookieMatch = req.headers.cookie.match(new RegExp(`${sessionName}=([^;]+)`));
+    if (cookieMatch) {
+      cookieSessionId = cookieMatch[1];
+    }
   }
   
-  const originalSend = res.send;
-  const originalJson = res.json;
-  const originalEnd = res.end;
+  // Check if there's a session ID mismatch (cookie vs server session)
+  const sessionMismatch = cookieSessionId && cookieSessionId !== req.sessionID;
   
-  // Override response methods to add session cookie before sending
-  const addSessionCookieBeforeSend = function() {
-    // Only set cookie if there's a session ID and origin is allowed or missing
-    if (req.sessionID && (!req.headers.origin || allowedOrigins.includes(req.headers.origin))) {
-      try {
-        // Set session cookie using Express method
-        res.cookie(sessionName, req.sessionID, {
-          httpOnly: true,
-          secure: true,
-          sameSite: 'none',
-          maxAge: cookieSettings.maxAge,
-          path: '/'
-        });
-        
-        // Also set manually as backup
-        const cookieValue = `${sessionName}=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${Math.floor(cookieSettings.maxAge / 1000)}`;
-        const existingCookies = res.getHeaders()['set-cookie'] || [];
-        const allCookies = Array.isArray(existingCookies) 
-          ? [...existingCookies, cookieValue]
-          : existingCookies 
-            ? [existingCookies, cookieValue]
-            : [cookieValue];
-        res.setHeader('Set-Cookie', allCookies);
-        
-        // Only log once per request
-        if (!req.sessionCookieSet) {
-          console.log(`🍪 AUTO-SET COOKIE: ${req.method} ${req.path} - Setting session cookie ${req.sessionID}`);
-          req.sessionCookieSet = true;
-        }
-      } catch (error) {
-        console.error('Error setting session cookie:', error);
+  // If there's a mismatch, try to load the existing session from cookie
+  if (sessionMismatch && cookieSessionId) {
+    console.log(`🔄 SESSION MISMATCH DETECTED: Cookie=${cookieSessionId}, Server=${req.sessionID}`);
+    console.log('   Attempting to use cookie session ID instead of creating new session');
+    
+    // Try to load the session from the store using the cookie session ID
+    sessionStore.get(cookieSessionId, (err, existingSession) => {
+      if (!err && existingSession) {
+        console.log('✅ Found existing session in store, using it');
+        // Replace the current session with the existing one
+        req.sessionID = cookieSessionId;
+        Object.assign(req.session, existingSession);
+      } else {
+        console.log('❌ Could not find existing session in store, keeping new session');
       }
-    }
-  };
-  
-  res.send = function(data) {
-    addSessionCookieBeforeSend();
-    return originalSend.call(this, data);
-  };
-  
-  res.json = function(data) {
-    addSessionCookieBeforeSend();
-    return originalJson.call(this, data);
-  };
-  
-  res.end = function(data, encoding) {
-    addSessionCookieBeforeSend();
-    return originalEnd.call(this, data);
-  };
+    });
+  }
   
   next();
 });
@@ -640,9 +710,16 @@ passport.serializeUser(function(user, done) {
 
 passport.deserializeUser(async function(id, done) {
     try {
+        console.log('🔄 PASSPORT DESERIALIZE: Attempting to deserialize user ID:', id);
         const user = await User.findById(id);
+        if (user) {
+            console.log('✅ PASSPORT DESERIALIZE: User found:', user.username);
+        } else {
+            console.log('❌ PASSPORT DESERIALIZE: No user found for ID:', id);
+        }
         done(null, user);
     } catch (err) {
+        console.error('💥 PASSPORT DESERIALIZE ERROR:', err);
         done(err, null);
     }
 });
@@ -952,6 +1029,34 @@ app.get('/verify-email', async (req, res) => {
         // No token, no error, no success - redirect to frontend
         res.redirect('http://localhost:3005/verify-email');
     }
+});
+
+// Special middleware to force session cookies after successful login
+app.use('/login', (req, res, next) => {
+  if (req.method === 'POST') {
+    const originalJson = res.json;
+    res.json = function(data) {
+      // Only set cookie if login was successful
+      if (data && data.success && req.sessionID) {
+        console.log('🍪 LOGIN SUCCESS: Force setting session cookie');
+        console.log('   Session ID:', req.sessionID);
+        console.log('   Origin:', req.headers.origin);
+        
+        // Force set the session cookie with explicit settings
+        res.cookie(sessionName, req.sessionID, {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'none',
+          maxAge: cookieSettings.maxAge,
+          path: '/'
+        });
+        
+        console.log('   Cookie explicitly set:', `${sessionName}=${req.sessionID}`);
+      }
+      return originalJson.call(this, data);
+    };
+  }
+  next();
 });
 
 // Login API route
