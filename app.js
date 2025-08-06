@@ -267,6 +267,11 @@ app.use((req, res, next) => {
   if (req.headers.origin && allowedOrigins.includes(req.headers.origin)) {
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Expose-Headers', 'Set-Cookie');
+    
+    // Force cookie transmission for cross-origin requests
+    if (req.session && req.sessionID) {
+      res.header('Set-Cookie', `${sessionName}=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`);
+    }
   }
   
   next();
@@ -285,7 +290,27 @@ app.get('/test-session', (req, res) => {
     sessionID: req.sessionID,
     isAuthenticated: req.isAuthenticated(),
     cookieSecure: req.session.cookie.secure,
-    cookieSameSite: req.session.cookie.sameSite
+    cookieSameSite: req.session.cookie.sameSite,
+    cookies: req.headers.cookie,
+    origin: req.headers.origin
+  });
+});
+
+// Debug endpoint for cross-origin cookie testing
+app.get('/debug-auth', (req, res) => {
+  res.json({
+    sessionID: req.sessionID,
+    isAuthenticated: req.isAuthenticated(),
+    hasUser: !!req.user,
+    hasSession: !!req.session,
+    cookies: req.headers.cookie,
+    origin: req.headers.origin,
+    userAgent: req.headers['user-agent'],
+    cookieSettings: {
+      secure: req.session?.cookie?.secure,
+      sameSite: req.session?.cookie?.sameSite,
+      domain: req.session?.cookie?.domain
+    }
   });
 });
 
