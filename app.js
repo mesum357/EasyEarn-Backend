@@ -130,6 +130,9 @@ app.options('*', function(req, res) {
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
     res.header('Access-Control-Expose-Headers', 'Set-Cookie'); // Important for cookie handling
     res.header('Access-Control-Max-Age', '86400'); // 24 hours
+    
+    // Additional headers for better cross-origin cookie support
+    res.header('Vary', 'Origin');
     res.status(200).end();
   } else {
     console.log('OPTIONS request blocked due to origin not allowed:', origin);
@@ -201,6 +204,9 @@ console.log('Cookie settings:', cookieSettings);
 if (process.env.COOKIE_DOMAIN) {
   cookieSettings.domain = process.env.COOKIE_DOMAIN;
   console.log('Setting cookie domain:', process.env.COOKIE_DOMAIN);
+} else if (isProduction) {
+  // For cross-origin requests in production, don't set domain to allow browser to handle it
+  console.log('Production environment: Not setting cookie domain to allow cross-origin cookies');
 }
 
 const sessionStore = MongoStore.create({
@@ -256,6 +262,13 @@ app.use((req, res, next) => {
       req.path !== '/health') {
     console.log(`${req.method} ${req.path} - Session ID: ${req.sessionID}, Authenticated: ${req.isAuthenticated()}, User: ${req.user ? req.user.username : 'none'}`);
   }
+  
+  // Add additional headers for cross-origin cookie support
+  if (req.headers.origin && allowedOrigins.includes(req.headers.origin)) {
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
   next();
 });
 
