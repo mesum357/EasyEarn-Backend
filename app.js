@@ -298,8 +298,8 @@ process.on('uncaughtException', (error) => {
 app.use((req, res, next) => {
   // Only log non-frequent endpoints and exclude health checks
   if (req.path !== '/api/my-participations' && 
-      req.path !== '/me' && 
-      req.path !== '/api/notifications' && 
+      req.path !== '/me' &&
+      req.path !== '/api/notifications' &&
       req.path !== '/health') {
     console.log(`${req.method} ${req.path} - Session ID: ${req.sessionID}, Authenticated: ${req.isAuthenticated()}, User: ${req.user ? req.user.username : 'none'}`);
   }
@@ -308,14 +308,71 @@ app.use((req, res, next) => {
   if (req.headers.origin && allowedOrigins.includes(req.headers.origin)) {
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Expose-Headers', 'Set-Cookie');
-    
-    // Force cookie transmission for cross-origin requests with proper settings
-    if (req.session && req.sessionID) {
-      const cookieValue = `${sessionName}=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`;
-      res.header('Set-Cookie', cookieValue);
-      console.log('Setting cross-origin cookie:', cookieValue);
-    }
   }
+  
+  next();
+});
+
+// CRITICAL FIX: Force session cookie on ALL responses for Railway production
+app.use((req, res, next) => {
+  // Skip automatic cookie setting for login endpoint to avoid conflicts
+  if (req.path === '/login' && req.method === 'POST') {
+    return next();
+  }
+  
+  const originalSend = res.send;
+  const originalJson = res.json;
+  const originalEnd = res.end;
+  
+  // Override response methods to add session cookie before sending
+  const addSessionCookieBeforeSend = function() {
+    // Only set cookie if there's a session ID and origin is allowed or missing
+    if (req.sessionID && (!req.headers.origin || allowedOrigins.includes(req.headers.origin))) {
+      try {
+        // Set session cookie using Express method
+        res.cookie(sessionName, req.sessionID, {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'none',
+          maxAge: cookieSettings.maxAge,
+          path: '/'
+        });
+        
+        // Also set manually as backup
+        const cookieValue = `${sessionName}=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${Math.floor(cookieSettings.maxAge / 1000)}`;
+        const existingCookies = res.getHeaders()['set-cookie'] || [];
+        const allCookies = Array.isArray(existingCookies) 
+          ? [...existingCookies, cookieValue]
+          : existingCookies 
+            ? [existingCookies, cookieValue]
+            : [cookieValue];
+        res.setHeader('Set-Cookie', allCookies);
+        
+        // Only log once per request
+        if (!req.sessionCookieSet) {
+          console.log(`🍪 AUTO-SET COOKIE: ${req.method} ${req.path} - Setting session cookie ${req.sessionID}`);
+          req.sessionCookieSet = true;
+        }
+      } catch (error) {
+        console.error('Error setting session cookie:', error);
+      }
+    }
+  };
+  
+  res.send = function(data) {
+    addSessionCookieBeforeSend();
+    return originalSend.call(this, data);
+  };
+  
+  res.json = function(data) {
+    addSessionCookieBeforeSend();
+    return originalJson.call(this, data);
+  };
+  
+  res.end = function(data, encoding) {
+    addSessionCookieBeforeSend();
+    return originalEnd.call(this, data);
+  };
   
   next();
 });
@@ -918,54 +975,99 @@ app.post("/login", function(req, res, next) {
             return res.status(401).json({ error: 'Please verify your email before logging in.' });
         }
         
-        // Regenerate session to prevent session fixation attacks
-        req.session.regenerate(function(err) {
-            if (err) {
-                console.error('Session regeneration error:', err);
-                return res.status(500).json({ error: 'Session error' });
-            }
-            
-            // Log in the user
+        // Log in the user directly without session regeneration to avoid ID conflicts
         req.logIn(user, function(err) {
             if (err) {
-                    console.error('req.logIn error:', err);
-                    return res.status(500).json({ error: 'Authentication error' });
+                console.error('req.logIn error:', err);
+                return res.status(500).json({ error: 'Authentication error' });
+            }
+            
+            // Make sure session data is saved before sending response
+            req.session.userId = user._id; // Store user ID explicitly in session
+            req.session.loginTime = new Date().toISOString();
+            
+            // Save session explicitly to ensure it's stored in the database
+            req.session.save(function(err) {
+                if (err) {
+                    console.error('Session save error:', err);
+                    return res.status(500).json({ error: 'Session storage error' });
                 }
                 
-                // Make sure session data is saved before sending response
-                req.session.userId = user._id; // Store user ID explicitly in session
-                req.session.loginTime = new Date().toISOString();
+                console.log('Login successful for:', user.username);
+                console.log('Session ID after login:', req.sessionID);
+                console.log('User authenticated:', req.isAuthenticated());
+                console.log('Session cookie:', req.session.cookie);
                 
-                // Save session explicitly to ensure it's stored in the database
-                req.session.save(function(err) {
-                    if (err) {
-                        console.error('Session save error:', err);
-                        return res.status(500).json({ error: 'Session storage error' });
-                    }
-                    
-                    console.log('Login successful for:', user.username);
-                    console.log('Session ID after login:', req.sessionID);
-                    console.log('User authenticated:', req.isAuthenticated());
-                    console.log('Session cookie:', req.session.cookie);
-                    
-                    // Get session expiration date in human-readable format
-                    const expiresAt = new Date(Date.now() + req.session.cookie.maxAge);
-                    console.log('Session expires at:', expiresAt.toISOString());
-                    
-                    // Add session expiration info to the response
-                    return res.status(200).json({ 
-                        success: true, 
-                        message: 'Login successful', 
-                        user: { 
-                            _id: user._id, 
-                            email: user.email, 
-                            username: user.username 
-                        },
-                        session: {
-                            id: req.sessionID,
-                            expiresAt: expiresAt.toISOString()
-                        }
+                // Get session expiration date in human-readable format
+                const expiresAt = new Date(Date.now() + req.session.cookie.maxAge);
+                console.log('Session expires at:', expiresAt.toISOString());
+                
+                // Explicitly set the session cookie for cross-origin requests
+                console.log('🔍 COOKIE SETTING DEBUG:');
+                console.log('   Request Origin:', req.headers.origin);
+                console.log('   Origin Allowed:', req.headers.origin && allowedOrigins.includes(req.headers.origin));
+                console.log('   Session ID:', req.sessionID);
+                console.log('   Session Name:', sessionName);
+                console.log('   Cookie Settings:', cookieSettings);
+                
+                // CRITICAL FIX: Force set cookies for all requests in production
+                // Railway proxy might be interfering with origin-based logic
+                const shouldSetCookie = req.headers.origin && allowedOrigins.includes(req.headers.origin) || !req.headers.origin;
+                
+                if (shouldSetCookie) {
+                    // Method 1: Use Express res.cookie (recommended)
+                    res.cookie(sessionName, req.sessionID, {
+                        httpOnly: true,
+                        secure: true,
+                        sameSite: 'none',
+                        maxAge: cookieSettings.maxAge,
+                        path: '/'
                     });
+                    
+                    // Method 2: Manual header setting (backup)
+                    const cookieValue = `${sessionName}=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${Math.floor(cookieSettings.maxAge / 1000)}`;
+                    
+                    // Get existing Set-Cookie headers to append to them
+                    const existingCookies = res.getHeaders()['set-cookie'] || [];
+                    const allCookies = Array.isArray(existingCookies) 
+                        ? [...existingCookies, cookieValue]
+                        : existingCookies 
+                            ? [existingCookies, cookieValue]
+                            : [cookieValue];
+                    
+                    res.setHeader('Set-Cookie', allCookies);
+                    
+                    console.log('✅ Setting session cookie for login:');
+                    console.log('   Method: Express res.cookie + manual header');
+                    console.log('   Cookie Name:', sessionName);
+                    console.log('   Session ID:', req.sessionID);
+                    console.log('   Manual Cookie Value:', cookieValue);
+                    console.log('   All Cookies Being Set:', allCookies);
+                    
+                    // Force the response to flush cookies immediately
+                    res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+                    res.header('Pragma', 'no-cache');
+                    res.header('Expires', '0');
+                    
+                } else {
+                    console.log('❌ Not setting cookie - origin check failed');
+                    console.log('   Origin:', req.headers.origin);
+                    console.log('   Allowed Origins:', allowedOrigins.slice(0, 5), '...');
+                }
+                
+                // Add session expiration info to the response
+                return res.status(200).json({ 
+                    success: true, 
+                    message: 'Login successful', 
+                    user: { 
+                        _id: user._id, 
+                        email: user.email, 
+                        username: user.username 
+                    },
+                    session: {
+                        id: req.sessionID,
+                        expiresAt: expiresAt.toISOString()
+                    }
                 });
             });
         });
