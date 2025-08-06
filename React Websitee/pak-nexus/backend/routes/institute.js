@@ -5,14 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const Institute = require('../models/Institute');
 const Review = require('../models/Review');
-const ensureAuthenticated = (req, res, next) => {
-  console.log('ensureAuthenticated middleware called');
-  console.log('req.isAuthenticated():', req.isAuthenticated());
-  console.log('req.user:', req.user);
-  if (req.isAuthenticated()) return next();
-  console.log('Authentication failed, sending 401');
-  res.status(401).json({ error: 'Not authenticated' });
-};
+const { ensureAuthenticated } = require('../middleware/auth');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -237,6 +230,17 @@ router.get('/all', async (req, res) => {
   }
 });
 
+// Get institutes owned by current user
+router.get('/my-institutes', ensureAuthenticated, async (req, res) => {
+  try {
+    const institutes = await Institute.find({ owner: req.user._id }).sort({ createdAt: -1 });
+    res.json({ institutes });
+  } catch (error) {
+    console.error('Error fetching user institutes:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get single institute by ID
 router.get('/:id', async (req, res) => {
   try {
@@ -376,7 +380,7 @@ router.delete('/:id', ensureAuthenticated, async (req, res) => {
 router.get('/:id/reviews', async (req, res) => {
   try {
     const reviews = await Review.find({ institute: req.params.id })
-      .populate('reviewer', 'username email')
+      .populate('reviewer', 'username fullName email profileImage city')
       .sort({ createdAt: -1 });
     
     res.json({ reviews });
@@ -429,7 +433,7 @@ router.post('/:id/reviews', ensureAuthenticated, async (req, res) => {
     }
     
     // Populate reviewer info for response
-    await review.populate('reviewer', 'username email');
+    await review.populate('reviewer', 'username fullName email profileImage city');
     
     res.status(201).json({
       success: true,
@@ -470,7 +474,7 @@ router.put('/:id/reviews/:reviewId', ensureAuthenticated, async (req, res) => {
       await institute.save();
     }
     
-    await review.populate('reviewer', 'username email');
+    await review.populate('reviewer', 'username fullName email profileImage city');
     
     res.json({
       success: true,

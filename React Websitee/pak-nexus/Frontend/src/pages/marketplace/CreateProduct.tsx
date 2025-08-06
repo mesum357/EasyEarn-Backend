@@ -1,197 +1,384 @@
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Upload, X, Plus } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { useToast } from '@/hooks/use-toast'
-import Navbar from '@/components/Navbar'
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Upload, X, Plus, Trash2, Crop } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
+import Navbar from '@/components/Navbar';
+import { API_BASE_URL } from '@/lib/config';
+import { ImageCropper } from '@/components/ui/image-cropper';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
 
 const categories = [
-  "Electronics", "Vehicles", "Property", "Furniture", "Jobs", 
-  "Fashion", "Books", "Sports", "Home & Garden", "Pets"
-]
+  'Electronics',
+  'Vehicles',
+  'Furniture',
+  'Jobs',
+  'Property',
+  'Fashion',
+  'Books',
+  'Sports',
+  'Home & Garden',
+  'Services',
+  'Other'
+];
 
 const cities = [
-  "Karachi", "Lahore", "Islamabad", "Faisalabad", "Multan",
-  "Peshawar", "Quetta", "Rawalpindi", "Gujranwala", "Sialkot"
-]
-
-interface ProductForm {
-  title: string
-  description: string
-  price: string
-  category: string
-  condition: 'new' | 'used' | 'refurbished' | ''
-  city: string
-  contactPhone: string
-  contactEmail: string
-  images: File[]
-  imagePreviews: string[]
-}
+  'Karachi',
+  'Lahore',
+  'Islamabad',
+  'Faisalabad',
+  'Rawalpindi',
+  'Multan',
+  'Peshawar',
+  'Quetta',
+  'Gujranwala',
+  'Sialkot',
+  'Bahawalpur',
+  'Sargodha',
+  'Other'
+];
 
 export default function CreateProduct() {
-  const navigate = useNavigate()
-  const { toast } = useToast()
-  
-  const [form, setForm] = useState<ProductForm>({
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [imageFiles, setImageFiles] = useState([]);
+  const [imagePreviews, setImagePreviews] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [newTag, setNewTag] = useState('');
+
+  // Image cropper states
+  const [showCropper, setShowCropper] = useState(false);
+  const [tempImageFile, setTempImageFile] = useState(null);
+  const [croppingIndex, setCroppingIndex] = useState(-1); // -1 for new image, >=0 for editing existing
+
+  const [formData, setFormData] = useState({
     title: '',
     description: '',
     price: '',
+    priceType: 'fixed',
     category: '',
-    condition: '',
+    condition: 'used',
+    location: '',
     city: '',
-    contactPhone: '',
-    contactEmail: '',
-    images: [],
-    imagePreviews: []
-  })
+    contactPreference: 'both',
+    ownerPhone: '',
+    ownerEmail: ''
+  });
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    if (form.images.length + files.length > 5) {
-      toast({
-        title: "Too many images",
-        description: "You can upload maximum 5 images",
-        variant: "destructive"
+  useEffect(() => {
+    // Check if user is authenticated
+    fetch(`${API_BASE_URL}/me`, { credentials: 'include' })
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then(data => {
+        setCurrentUser(data.user);
+        setFormData(prev => ({
+          ...prev,
+          ownerEmail: data.user.email || '',
+          ownerPhone: data.user.phone || ''
+        }));
       })
-      return
+      .catch(() => {
+        navigate('/login');
+      });
+  }, [navigate]);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSelectChange = (name, value) => {
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleImageUpload = (e) => {
+    const files = Array.from(e.target.files);
+    
+    if (imageFiles.length + files.length > 10) {
+      toast({
+        title: "Error",
+        description: "Maximum 10 images allowed",
+        variant: "destructive"
+      });
+      return;
     }
 
-    const newImages = [...form.images, ...files]
-    const newPreviews = [...form.imagePreviews]
+    // Open cropper for the first file
+    if (files.length > 0) {
+      setTempImageFile(files[0]);
+      setCroppingIndex(-1); // New image
+      setShowCropper(true);
+    }
+  };
 
-    files.forEach(file => {
-      const reader = new FileReader()
+  // Handle cropped image
+  const handleCropComplete = (croppedFile) => {
+    if (croppingIndex === -1) {
+      // Adding new image
+      const newFiles = [...imageFiles, croppedFile];
+      setImageFiles(newFiles);
+
+      // Create preview
+      const reader = new FileReader();
       reader.onload = (e) => {
-        newPreviews.push(e.target?.result as string)
-        setForm(prev => ({ ...prev, imagePreviews: newPreviews }))
-      }
-      reader.readAsDataURL(file)
-    })
+        setImagePreviews(prev => [...prev, e.target.result]);
+      };
+      reader.readAsDataURL(croppedFile);
+    } else {
+      // Editing existing image
+      const newFiles = [...imageFiles];
+      newFiles[croppingIndex] = croppedFile;
+      setImageFiles(newFiles);
 
-    setForm(prev => ({ ...prev, images: newImages }))
-  }
+      // Update preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const newPreviews = [...imagePreviews];
+        newPreviews[croppingIndex] = e.target.result;
+        setImagePreviews(newPreviews);
+      };
+      reader.readAsDataURL(croppedFile);
+    }
 
-  const removeImage = (index: number) => {
-    setForm(prev => ({
-      ...prev,
-      images: prev.images.filter((_, i) => i !== index),
-      imagePreviews: prev.imagePreviews.filter((_, i) => i !== index)
-    }))
-  }
+    setTempImageFile(null);
+    setCroppingIndex(-1);
+    setShowCropper(false);
+  };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  // Handle editing existing image
+  const handleEditImage = (index) => {
+    if (imageFiles[index]) {
+      setTempImageFile(imageFiles[index]);
+      setCroppingIndex(index);
+      setShowCropper(true);
+    }
+  };
+
+  // Close cropper without applying
+  const handleCloseCropper = () => {
+    setShowCropper(false);
+    setTempImageFile(null);
+    setCroppingIndex(-1);
+  };
+
+  const removeImage = (index) => {
+    setImageFiles(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const addTag = () => {
+    if (newTag.trim() && !tags.includes(newTag.trim()) && tags.length < 10) {
+      setTags(prev => [...prev, newTag.trim()]);
+      setNewTag('');
+    }
+  };
+
+  const removeTag = (tagToRemove) => {
+    setTags(prev => prev.filter(tag => tag !== tagToRemove));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     
-    if (!form.title || !form.description || !form.price || !form.category || !form.condition || !form.city || !form.contactPhone) {
+    if (!currentUser) {
       toast({
-        title: "Missing fields",
+        title: "Error",
+        description: "Please log in to create a product",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validation
+    if (!formData.title || !formData.description || !formData.price || !formData.category || !formData.location || !formData.city) {
+      toast({
+        title: "Error",
         description: "Please fill in all required fields",
         variant: "destructive"
-      })
-      return
+      });
+      return;
     }
 
-    if (form.images.length === 0) {
+    if (imageFiles.length === 0) {
       toast({
-        title: "No images",
+        title: "Error",
         description: "Please upload at least one image",
         variant: "destructive"
-      })
-      return
+      });
+      return;
     }
 
-    toast({
-      title: "Product listed successfully!",
-      description: "Your product is now live on the marketplace"
-    })
+    setLoading(true);
 
-    // Here you would typically send the data to your backend
-    console.log('Product data:', form)
-    navigate('/marketplace')
+    try {
+      const submitData = new FormData();
+      
+      // Add form data
+      Object.keys(formData).forEach(key => {
+        submitData.append(key, formData[key]);
+      });
+
+      // Add images
+      imageFiles.forEach(file => {
+        submitData.append('images', file);
+      });
+
+      // Add tags
+      if (tags.length > 0) {
+        submitData.append('tags', JSON.stringify(tags));
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/marketplace`, {
+        method: 'POST',
+        credentials: 'include',
+        body: submitData
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create product');
+      }
+
+      toast({
+        title: "Success",
+        description: "Product created successfully!"
+      });
+
+      navigate('/marketplace');
+    } catch (error) {
+      console.error('Error creating product:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create product",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <div className="pt-20">
+          <div className="max-w-4xl mx-auto p-4">
+            <div className="text-center">Loading...</div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
       <div className="pt-20">
-        {/* Back Button */}
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+        <div className="max-w-4xl mx-auto p-4">
+          {/* Header */}
           <motion.div
-            initial={{ x: -20, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ duration: 0.4 }}
+            initial={{ y: -20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="mb-6"
           >
             <Button
               variant="ghost"
               onClick={() => navigate('/marketplace')}
-              className="gap-2 mb-4"
+              className="mb-4"
             >
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Marketplace
             </Button>
+            <h1 className="text-3xl font-bold text-foreground">List Your Product</h1>
+            <p className="text-muted-foreground mt-2">
+              Create a new listing to sell your item across Pakistan
+            </p>
           </motion.div>
-        </div>
 
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <motion.div
-            initial={{ y: 30, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 0.6 }}
-          >
-            <div className="text-center mb-8">
-              <h1 className="text-4xl font-bold text-foreground mb-2">
-                List Your Product
-              </h1>
-              <p className="text-xl text-muted-foreground">
-                Reach thousands of potential buyers across Pakistan
-              </p>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Product Information</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  {/* Basic Info */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label htmlFor="title">Product Title *</Label>
+          <form onSubmit={handleSubmit}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left Column */}
+              <motion.div
+                initial={{ x: -30, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                transition={{ delay: 0.1 }}
+                className="space-y-6"
+              >
+                {/* Basic Information */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Basic Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium">Title *</label>
                       <Input
-                        id="title"
+                        name="title"
+                        value={formData.title}
+                        onChange={handleInputChange}
                         placeholder="Enter product title"
-                        value={form.title}
-                        onChange={(e) => setForm(prev => ({ ...prev, title: e.target.value }))}
-                        required
+                        maxLength={100}
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="price">Price (PKR) *</Label>
-                      <Input
-                        id="price"
-                        type="number"
-                        placeholder="0"
-                        value={form.price}
-                        onChange={(e) => setForm(prev => ({ ...prev, price: e.target.value }))}
-                        required
+                    <div>
+                      <label className="text-sm font-medium">Description *</label>
+                      <RichTextEditor
+                        value={formData.description}
+                        onChange={(value) => setFormData(prev => ({ ...prev, description: value }))}
+                        placeholder="Describe your product in detail"
+                        rows={4}
+                        maxLength={1000}
                       />
                     </div>
-                  </div>
 
-                  {/* Category & City */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label>Category *</Label>
-                      <Select value={form.category} onValueChange={(value) => setForm(prev => ({ ...prev, category: value }))}>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-sm font-medium">Price (PKR) *</label>
+                        <Input
+                          name="price"
+                          type="number"
+                          value={formData.price}
+                          onChange={handleInputChange}
+                          placeholder="0"
+                          min="0"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Price Type</label>
+                        <Select value={formData.priceType} onValueChange={(value) => handleSelectChange('priceType', value)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="fixed">Fixed Price</SelectItem>
+                            <SelectItem value="negotiable">Negotiable</SelectItem>
+                            <SelectItem value="free">Free</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Category & Condition */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Category & Condition</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium">Category *</label>
+                      <Select value={formData.category} onValueChange={(value) => handleSelectChange('category', value)}>
                         <SelectTrigger>
                           <SelectValue placeholder="Select category" />
                         </SelectTrigger>
@@ -203,9 +390,41 @@ export default function CreateProduct() {
                       </Select>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label>City *</Label>
-                      <Select value={form.city} onValueChange={(value) => setForm(prev => ({ ...prev, city: value }))}>
+                    <div>
+                      <label className="text-sm font-medium">Condition</label>
+                      <Select value={formData.condition} onValueChange={(value) => handleSelectChange('condition', value)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="new">New</SelectItem>
+                          <SelectItem value="used">Used</SelectItem>
+                          <SelectItem value="refurbished">Refurbished</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Location */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Location</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium">Detailed Location *</label>
+                      <Input
+                        name="location"
+                        value={formData.location}
+                        onChange={handleInputChange}
+                        placeholder="e.g., DHA Phase 5, Lahore"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium">City *</label>
+                      <Select value={formData.city} onValueChange={(value) => handleSelectChange('city', value)}>
                         <SelectTrigger>
                           <SelectValue placeholder="Select city" />
                         </SelectTrigger>
@@ -216,142 +435,190 @@ export default function CreateProduct() {
                         </SelectContent>
                       </Select>
                     </div>
-                  </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
 
-                  {/* Condition */}
-                  <div className="space-y-3">
-                    <Label>Condition *</Label>
-                    <RadioGroup 
-                      value={form.condition} 
-                      onValueChange={(value: 'new' | 'used' | 'refurbished') => setForm(prev => ({ ...prev, condition: value }))}
-                      className="flex gap-6"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="new" id="new" />
-                        <Label htmlFor="new">New</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="used" id="used" />
-                        <Label htmlFor="used">Used</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="refurbished" id="refurbished" />
-                        <Label htmlFor="refurbished">Refurbished</Label>
-                      </div>
-                    </RadioGroup>
-                  </div>
-
-                  {/* Description */}
-                  <div className="space-y-2">
-                    <Label htmlFor="description">Description *</Label>
-                    <Textarea
-                      id="description"
-                      placeholder="Describe your product in detail..."
-                      value={form.description}
-                      onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
-                      rows={5}
-                      required
-                    />
-                  </div>
-
-                  {/* Images */}
-                  <div className="space-y-4">
-                    <Label>Product Images * (Max 5 images)</Label>
-                    
-                    {/* Image Upload */}
-                    <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
+              {/* Right Column */}
+              <motion.div
+                initial={{ x: 30, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                transition={{ delay: 0.2 }}
+                className="space-y-6"
+              >
+                {/* Images */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Product Images *</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center">
+                      <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Upload up to 10 images (Max 10MB each)
+                      </p>
                       <input
                         type="file"
-                        accept="image/*"
                         multiple
+                        accept="image/*"
                         onChange={handleImageUpload}
                         className="hidden"
                         id="image-upload"
                       />
-                      <label htmlFor="image-upload" className="cursor-pointer">
-                        <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-                        <p className="text-muted-foreground">
-                          Click to upload images or drag and drop
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          PNG, JPG up to 10MB each
-                        </p>
+                      <label htmlFor="image-upload">
+                        <Button variant="outline" asChild>
+                          <span>Choose Images</span>
+                        </Button>
                       </label>
                     </div>
 
-                    {/* Image Previews */}
-                    {form.imagePreviews.length > 0 && (
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                        {form.imagePreviews.map((preview, index) => (
-                          <div key={index} className="relative">
+                    {imagePreviews.length > 0 && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {imagePreviews.map((preview, index) => (
+                          <div key={index} className="relative group">
                             <img
                               src={preview}
                               alt={`Preview ${index + 1}`}
                               className="w-full h-24 object-cover rounded-lg"
                             />
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => removeImage(index)}
-                              className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-1 rounded-lg">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-6 px-2 bg-white/90 hover:bg-white"
+                                onClick={() => handleEditImage(index)}
+                              >
+                                <Crop className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                onClick={() => removeImage(index)}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
                           </div>
                         ))}
                       </div>
                     )}
-                  </div>
+                  </CardContent>
+                </Card>
 
-                  {/* Contact Info */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label htmlFor="phone">Phone Number *</Label>
+                {/* Tags */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Tags (Optional)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex gap-2">
                       <Input
-                        id="phone"
-                        placeholder="+92 300 1234567"
-                        value={form.contactPhone}
-                        onChange={(e) => setForm(prev => ({ ...prev, contactPhone: e.target.value }))}
-                        required
+                        value={newTag}
+                        onChange={(e) => setNewTag(e.target.value)}
+                        placeholder="Add a tag"
+                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                      />
+                      <Button type="button" variant="outline" onClick={addTag}>
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {tags.map((tag, index) => (
+                          <Badge key={index} variant="secondary" className="flex items-center gap-1">
+                            {tag}
+                            <button
+                              type="button"
+                              onClick={() => removeTag(tag)}
+                              className="ml-1 hover:text-destructive"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Contact Information */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Contact Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium">Contact Preference</label>
+                      <Select value={formData.contactPreference} onValueChange={(value) => handleSelectChange('contactPreference', value)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="phone">Phone Only</SelectItem>
+                          <SelectItem value="email">Email Only</SelectItem>
+                          <SelectItem value="both">Both</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium">Phone Number</label>
+                      <Input
+                        name="ownerPhone"
+                        value={formData.ownerPhone}
+                        onChange={handleInputChange}
+                        placeholder="Enter phone number"
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="email">Email (Optional)</Label>
+                    <div>
+                      <label className="text-sm font-medium">Email</label>
                       <Input
-                        id="email"
+                        name="ownerEmail"
                         type="email"
-                        placeholder="your@email.com"
-                        value={form.contactEmail}
-                        onChange={(e) => setForm(prev => ({ ...prev, contactEmail: e.target.value }))}
+                        value={formData.ownerEmail}
+                        onChange={handleInputChange}
+                        placeholder="Enter email address"
                       />
                     </div>
-                  </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </div>
 
-                  {/* Submit */}
-                  <div className="flex gap-4 pt-6">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => navigate('/marketplace')}
-                      className="flex-1"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="submit"
-                      className="flex-1 bg-marketplace-primary hover:bg-marketplace-primary/90"
-                    >
-                      List Product
-                    </Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-          </motion.div>
+            {/* Submit Button */}
+            <motion.div
+              initial={{ y: 30, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="mt-8 flex justify-end"
+            >
+              <Button
+                type="submit"
+                size="lg"
+                disabled={loading}
+                className="bg-orange-500 hover:bg-orange-600"
+              >
+                {loading ? 'Creating...' : 'Create Listing'}
+              </Button>
+            </motion.div>
+          </form>
+
+          {/* Image Cropper Component */}
+          <ImageCropper
+            isOpen={showCropper}
+            onClose={handleCloseCropper}
+            imageFile={tempImageFile}
+            imageSrc={tempImageFile ? undefined : (croppingIndex >= 0 ? imagePreviews[croppingIndex] : undefined)}
+            onCropComplete={handleCropComplete}
+            aspectRatio={1}
+            title="Crop Product Image"
+          />
         </div>
       </div>
     </div>
-  )
+  );
 }

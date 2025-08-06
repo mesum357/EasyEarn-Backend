@@ -8,11 +8,7 @@ const Comment = require('../models/Comment');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 
-// Auth middleware (assume exists in your project)
-const ensureAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated && req.isAuthenticated()) return next();
-  res.status(401).json({ error: 'Not authenticated' });
-};
+const { ensureAuthenticated } = require('../middleware/auth');
 
 // Multer config for image uploads
 const storage = multer.diskStorage({
@@ -52,12 +48,12 @@ router.get('/posts', async (req, res) => {
   try {
     const posts = await Post.find()
       .sort({ createdAt: -1 })
-      .populate('user', 'username email profileImage')
+      .populate('user', 'username fullName email profileImage city')
       .populate({
         path: 'comments',
         populate: {
           path: 'user',
-          select: 'username email profileImage'
+          select: 'username fullName email profileImage city'
         }
       });
     res.json({ posts });
@@ -70,12 +66,12 @@ router.get('/posts', async (req, res) => {
 router.get('/post/:id', async (req, res) => {
   try {
     const post = await Post.findById(req.params.id)
-      .populate('user', 'username email profileImage')
+      .populate('user', 'username fullName email profileImage city')
       .populate({
         path: 'comments',
         populate: {
           path: 'user',
-          select: 'username email profileImage'
+          select: 'username fullName email profileImage city'
         }
       });
     if (!post) return res.status(404).json({ error: 'Post not found' });
@@ -200,7 +196,7 @@ router.post('/comment/:id/like', ensureAuthenticated, async (req, res) => {
 router.get('/post/:id/comments', async (req, res) => {
   try {
     const comments = await Comment.find({ post: req.params.id })
-      .populate('user', 'username email profileImage')
+      .populate('user', 'username fullName email profileImage city')
       .sort({ createdAt: 1 });
     res.json({ comments });
   } catch (error) {
@@ -291,7 +287,7 @@ router.get('/notifications', ensureAuthenticated, async (req, res) => {
   try {
     const notifications = await Notification.find({ user: req.user._id })
       .sort({ createdAt: -1 })
-      .populate('fromUser', 'username profileImage')
+      .populate('fromUser', 'username fullName email profileImage city')
       .populate('post', 'content')
       .populate('comment', 'content');
     res.json({ notifications });
@@ -307,6 +303,123 @@ router.post('/notifications/read', ensureAuthenticated, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Get trending hashtags
+router.get('/trending-hashtags', async (req, res) => {
+  try {
+    // Extract hashtags from posts and count their occurrences
+    const posts = await Post.find({}, 'content');
+    
+    const hashtagCounts = {};
+    const hashtagRegex = /#(\w+)/g;
+    
+    posts.forEach(post => {
+      let match;
+      while ((match = hashtagRegex.exec(post.content)) !== null) {
+        const hashtag = match[1].toLowerCase();
+        hashtagCounts[hashtag] = (hashtagCounts[hashtag] || 0) + 1;
+      }
+    });
+    
+    // Sort by count and get top hashtags
+    const sortedHashtags = Object.entries(hashtagCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 10)
+      .map(([hashtag]) => `#${hashtag}`);
+    
+    // If no hashtags found, return default ones
+    const defaultHashtags = [
+      "#PakistanOnline",
+      "#SmallBusiness", 
+      "#Education",
+      "#TechStartups",
+      "#Karachi",
+      "#Lahore"
+    ];
+    
+    res.json({ 
+      hashtags: sortedHashtags.length > 0 ? sortedHashtags : defaultHashtags 
+    });
+  } catch (error) {
+    console.error('Error fetching trending hashtags:', error);
+    res.status(500).json({ error: 'Failed to fetch trending hashtags' });
+  }
+});
+
+// Get user by username
+router.get('/user/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+    const user = await User.findOne({ username }).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({ user });
+  } catch (error) {
+    console.error('Error fetching user by username:', error);
+    res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+// Update user profile
+router.put('/profile/update', ensureAuthenticated, upload.single('profileImage'), async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { fullName, email, mobile, city, bio, website, currentPassword, newPassword } = req.body;
+    
+    // Find the user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Handle password change if provided
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Current password is required to change password' });
+      }
+      
+      // Verify current password
+      const isPasswordValid = await user.authenticate(currentPassword);
+      if (!isPasswordValid) {
+        return res.status(400).json({ error: 'Current password is incorrect' });
+      }
+      
+      // Set new password
+      user.password = newPassword;
+    }
+
+    // Handle profile image upload
+    if (req.file) {
+      user.profileImage = `/uploads/${req.file.filename}`;
+    }
+
+    // Update other fields
+    if (fullName !== undefined) user.fullName = fullName;
+    if (email !== undefined) user.email = email;
+    if (mobile !== undefined) user.mobile = mobile;
+    if (city !== undefined) user.city = city;
+    if (bio !== undefined) user.bio = bio;
+    if (website !== undefined) user.website = website;
+
+    // Save the user
+    await user.save();
+
+    // Return updated user data (without password)
+    const updatedUser = await User.findById(userId).select('-password');
+    
+    res.json({ 
+      success: true, 
+      message: 'Profile updated successfully',
+      user: updatedUser
+    });
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { API_BASE_URL } from '@/lib/config'
+import { getProfileImageUrl } from '@/lib/utils'
 import { useRef } from 'react'
 import CommentSection from './CommentSection'
 import { useToast } from '@/hooks/use-toast'
@@ -20,6 +21,7 @@ interface PostCardProps {
     user: {
       _id: string;
       username: string;
+      fullName?: string;
       email?: string;
       profileImage?: string;
       city?: string;
@@ -35,6 +37,7 @@ interface PostCardProps {
   currentUser?: {
     _id: string;
     username: string;
+    fullName?: string;
     email?: string;
     profileImage?: string;
     city?: string;
@@ -54,6 +57,7 @@ export default function PostCard({ post, index, currentUser, onPostDeleted }: Po
   const [saving, setSaving] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [sharing, setSharing] = useState(false)
   // TODO: Fetch and show comments, implement comment UI
 
   const handleLike = async (e: React.MouseEvent) => {
@@ -162,6 +166,30 @@ export default function PostCard({ post, index, currentUser, onPostDeleted }: Po
     setEditContent(post.content)
   }
 
+  const handleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSharing(true)
+    
+    try {
+      const postUrl = `${window.location.origin}/feed/post/${post._id}`
+      await navigator.clipboard.writeText(postUrl)
+      
+      toast({
+        title: "Link copied!",
+        description: "Post link has been copied to your clipboard.",
+      })
+    } catch (error) {
+      console.error('Failed to copy link:', error)
+      toast({
+        title: "Error",
+        description: "Failed to copy link. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setSharing(false)
+    }
+  }
+
   return (
     <motion.div
       initial={{ y: 50, opacity: 0 }}
@@ -178,12 +206,19 @@ export default function PostCard({ post, index, currentUser, onPostDeleted }: Po
                 e.stopPropagation()
                 navigate(`/feed/profile/${post.user.username}`)
               }}>
-                <AvatarImage src={post.user.profileImage} />
-                <AvatarFallback>{post.user.username[0]}</AvatarFallback>
+                <AvatarImage src={getProfileImageUrl(post.user.profileImage)} />
+                <AvatarFallback>
+                  {(post.user.fullName || (post.user.username.includes('@') ? post.user.username.split('@')[0] : post.user.username))[0]}
+                </AvatarFallback>
               </Avatar>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="font-semibold text-foreground">{post.user.username}</p>
+                  <p className="font-semibold text-foreground">
+                    {post.user.fullName || (post.user.username.includes('@') ? post.user.username.split('@')[0] : post.user.username)}
+                  </p>
+                  {post.user.fullName && (
+                    <p className="text-sm text-muted-foreground">@{post.user.username}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <span>{new Date(post.createdAt).toLocaleString()}</span>
@@ -213,9 +248,9 @@ export default function PostCard({ post, index, currentUser, onPostDeleted }: Po
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button variant="ghost" size="sm" onClick={(e) => e.stopPropagation()}>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
+            <Button variant="ghost" size="sm" onClick={(e) => e.stopPropagation()}>
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
             )}
           </div>
 
@@ -239,7 +274,7 @@ export default function PostCard({ post, index, currentUser, onPostDeleted }: Po
                 </div>
               </div>
             ) : (
-              <p className="text-foreground leading-relaxed whitespace-pre-line">{post.content}</p>
+            <p className="text-foreground leading-relaxed whitespace-pre-line">{post.content}</p>
             )}
             {post.image && (
               <div className="mt-4 rounded-xl overflow-hidden">
@@ -270,14 +305,14 @@ export default function PostCard({ post, index, currentUser, onPostDeleted }: Po
           <div className="flex items-center justify-between pt-3 border-t border-border">
             <div className="flex items-center gap-2 flex-1">
               {/* Like */}
-              <Button 
-                variant="ghost" 
+                <Button 
+                  variant="ghost" 
                 className={`w-full gap-2 ${liked ? 'text-red-500' : 'text-muted-foreground hover:text-red-500'}`}
                 onClick={handleLike}
-              >
-                <Heart className={`h-4 w-4 ${liked ? 'fill-current' : ''}`} />
-                Like
-              </Button>
+                >
+                  <Heart className={`h-4 w-4 ${liked ? 'fill-current' : ''}`} />
+                  Like
+                </Button>
               <Button 
                 variant="ghost" 
                 className="flex-1 gap-2 text-muted-foreground hover:text-primary"
@@ -289,10 +324,11 @@ export default function PostCard({ post, index, currentUser, onPostDeleted }: Po
               <Button 
                 variant="ghost" 
                 className="flex-1 gap-2 text-muted-foreground hover:text-primary"
-                onClick={(e) => e.stopPropagation()}
+                onClick={handleShare}
+                disabled={sharing}
               >
                 <Share className="h-4 w-4" />
-                Share
+                {sharing ? 'Copying...' : 'Share'}
               </Button>
             </div>
           </div>
