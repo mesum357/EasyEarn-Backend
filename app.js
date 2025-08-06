@@ -62,6 +62,7 @@ const allowedOrigins = [
   'https://gleaming-miracle-production.up.railway.app', // Project Frontend URL
   'https://easyearn-adminpanel-production.up.railway.app', // Railway Admin Panel
   'https://easyearn-adminpanel-production.up.railway.app/', // Railway Admin Panel with slash
+  'https://kingeasyearn.com', // Production Frontend URL
   // Backend (for API docs or testing)
   'https://easyearn-backend-4.onrender.com',
   'https://easyearn-backend-production.up.railway.app', // Railway backend URL
