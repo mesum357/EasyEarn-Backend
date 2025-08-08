@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import type { Shop as ShopType } from './Store'
 import heroStoreImage from '@/assets/hero-store.jpg'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Star, MapPin, Badge, Phone, Mail, Facebook, Instagram, MessageCircle, Plus, Trash2, Package, ImageIcon } from 'lucide-react'
+import { ArrowLeft, Star, MapPin, Badge, Phone, Mail, Facebook, Instagram, MessageCircle, Plus, Trash2, Package, ImageIcon, Edit, Settings, Share2, Wrench } from 'lucide-react'
 import Navbar from '@/components/Navbar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -59,6 +59,7 @@ interface CurrentUser {
 
 export default function Shop() {
   const { shopId } = useParams();
+  const navigate = useNavigate();
   const [shop, setShop] = useState<ShopWithGallery | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddProduct, setShowAddProduct] = useState(false);
@@ -78,8 +79,17 @@ export default function Shop() {
   const [dragActive, setDragActive] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [editProductIndex, setEditProductIndex] = useState<number | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeletingShop, setIsDeletingShop] = useState(false);
   const [deleteProductIndex, setDeleteProductIndex] = useState<number | null>(null);
   const [isDeletingProduct, setIsDeletingProduct] = useState(false);
+  const [showGalleryUpload, setShowGalleryUpload] = useState(false);
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
+  const [galleryPreviews, setGalleryPreviews] = useState<string[]>([]);
+  const [isUploadingGallery, setIsUploadingGallery] = useState(false);
+  const [deletingGalleryImage, setDeletingGalleryImage] = useState<number | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!shopId) return;
@@ -92,15 +102,7 @@ export default function Shop() {
             ...data.shop,
             id: data.shop._id,
             name: data.shop.shopName,
-            shopImage: data.shop.shopBanner
-              ? data.shop.shopBanner.startsWith('/uploads/')
-                ? `${API_BASE_URL}${data.shop.shopBanner}`
-                : `${API_BASE_URL}/uploads/${data.shop.shopBanner}`
-              : data.shop.shopLogo
-                ? data.shop.shopLogo.startsWith('/uploads/')
-                  ? `${API_BASE_URL}${data.shop.shopLogo}`
-                  : `${API_BASE_URL}/uploads/${data.shop.shopLogo}`
-                : heroStoreImage,
+            shopImage: data.shop.shopBanner || data.shop.shopLogo || heroStoreImage,
             categories: data.shop.categories || [],
             rating: data.shop.rating || 4.5,
             totalReviews: data.shop.totalReviews || 0,
@@ -118,13 +120,7 @@ export default function Shop() {
             },
             websiteUrl: data.shop.websiteUrl || '',
             products: data.shop.products || [],
-            gallery: (data.shop.products || []).flatMap((p) =>
-              (p.images || []).map((img: string) =>
-                img.startsWith('/uploads/')
-                  ? `${API_BASE_URL}${img}`
-                  : `${API_BASE_URL}/uploads/${img}`
-              )
-            ),
+            gallery: data.shop.gallery || [],
             owner: data.shop.owner // Ensure owner is set
           });
         } else {
@@ -144,6 +140,29 @@ export default function Shop() {
       .then(data => setCurrentUser(data.user || null))
       .catch(() => setCurrentUser(null));
   }, []);
+
+  const handleShare = async () => {
+    setSharing(true);
+    
+    try {
+      const shopUrl = `${window.location.origin}/shop/${shopId}`;
+      await navigator.clipboard.writeText(shopUrl);
+      
+      toast({
+        title: "Link copied!",
+        description: "Shop link has been copied to your clipboard.",
+      });
+    } catch (error) {
+      console.error('Failed to copy link:', error);
+      toast({
+        title: "Error",
+        description: "Failed to copy link. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSharing(false);
+    }
+  };
 
   const handleProductImageUpload = (files: FileList | null) => {
     if (!files) return;
@@ -253,7 +272,7 @@ export default function Shop() {
       discountPercentage: String(product.discountPercentage || ''),
       category: product.category || '',
       images: [],
-      imagePreviews: product.image ? [product.image.startsWith('/uploads/') ? `${API_BASE_URL}${product.image}` : `${API_BASE_URL}/uploads/${product.image}`] : [],
+                    imagePreviews: product.image ? [product.image] : [],
     });
     setEditProductIndex(idx);
     setShowAddProduct(false);
@@ -317,6 +336,140 @@ export default function Shop() {
       toast({ title: 'Network Error', description: 'Could not connect to server.', variant: 'destructive' });
     } finally {
       setIsDeletingProduct(false);
+    }
+  };
+
+  // Gallery upload functions
+  const handleGalleryUpload = (files: FileList | null) => {
+    if (!files) return;
+    const newFiles: File[] = Array.from(files);
+    const newPreviews: string[] = [];
+    let loaded = 0;
+    newFiles.forEach((file, idx) => {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const result = e.target?.result as string;
+          newPreviews[idx] = result;
+          loaded++;
+          if (loaded === newFiles.length) {
+            setGalleryFiles(prev => [...prev, ...newFiles]);
+            setGalleryPreviews(prev => [...prev, ...newPreviews]);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  };
+
+  const removeGalleryImage = (index: number) => {
+    setGalleryFiles(prev => prev.filter((_, i) => i !== index));
+    setGalleryPreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleGalleryDrag = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleGalleryDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleGalleryUpload(e.dataTransfer.files);
+    }
+  };
+
+  const handleUploadGallery = async () => {
+    if (galleryFiles.length === 0) {
+      toast({ title: 'No images selected', description: 'Please select at least one image to upload', variant: 'destructive' });
+      return;
+    }
+
+    setIsUploadingGallery(true);
+    try {
+      const formData = new FormData();
+      galleryFiles.forEach((file, index) => {
+        formData.append('galleryImages', file);
+      });
+
+      const response = await fetch(`${API_BASE_URL}/api/shop/${shopId}/gallery`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      const result = await response.json();
+      if (response.ok) {
+        toast({ title: 'Gallery updated', description: 'Images uploaded successfully' });
+        setShowGalleryUpload(false);
+        setGalleryFiles([]);
+        setGalleryPreviews([]);
+        // Refresh shop data to show new gallery images
+        window.location.reload();
+      } else {
+        toast({ title: 'Error', description: result.error || 'Failed to upload images', variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Network Error', description: 'Could not connect to server.', variant: 'destructive' });
+    } finally {
+      setIsUploadingGallery(false);
+    }
+  };
+
+  const handleDeleteGalleryImage = async (imageIndex: number) => {
+    if (!shop?.gallery) return;
+    
+    setDeletingGalleryImage(imageIndex);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/shop/${shopId}/gallery/${imageIndex}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      const result = await response.json();
+      if (response.ok) {
+        toast({ title: 'Image deleted', description: 'Gallery image removed successfully' });
+        // Refresh shop data to show updated gallery
+        window.location.reload();
+      } else {
+        toast({ title: 'Error', description: result.error || 'Failed to delete image', variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Network Error', description: 'Could not connect to server.', variant: 'destructive' });
+    } finally {
+      setDeletingGalleryImage(null);
+    }
+  };
+
+  const handleDeleteShop = async () => {
+    if (!shopId) return;
+    
+    setIsDeletingShop(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/shop/${shopId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        toast({ title: 'Success', description: 'Shop deleted successfully' });
+        navigate('/store');
+      } else {
+        const result = await response.json();
+        toast({ title: 'Error', description: result.error || 'Failed to delete shop', variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Network Error', description: 'Could not connect to server.', variant: 'destructive' });
+    } finally {
+      setIsDeletingShop(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -390,30 +543,90 @@ export default function Shop() {
             className="relative h-64 rounded-2xl overflow-hidden mb-8"
           >
             <img
-              src={shop.shopBanner
-                ? shop.shopBanner.startsWith('/uploads/')
-                  ? `${API_BASE_URL}${shop.shopBanner}`
-                  : `${API_BASE_URL}/uploads/${shop.shopBanner}`
-                : shop.shopLogo
-                  ? shop.shopLogo.startsWith('/uploads/')
-                    ? `${API_BASE_URL}${shop.shopLogo}`
-                    : `${API_BASE_URL}/uploads/${shop.shopLogo}`
-                  : heroStoreImage}
+              src={shop.shopBanner || shop.shopLogo || heroStoreImage}
               alt={shop.shopName}
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-black/40 flex items-end">
-              <div className="p-8 text-white">
-                <h1 className="text-4xl font-bold mb-2">{shop.shopName}</h1>
-                <div className="flex items-center gap-4">
-                  <UIBadge variant={shop.shopType === 'Product Seller' ? 'default' : 'secondary'}>
-                    {shop.shopType}
-                  </UIBadge>
-                  <div className="flex items-center">
-                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
-                    <span className="font-medium">{shop.rating}</span>
-                    <span className="text-white/80 ml-1">({shop.totalReviews} reviews)</span>
+              <div className="p-8 text-white w-full">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                  <div className="flex-1">
+                    <h1 className="text-4xl font-bold mb-2">{shop.shopName}</h1>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                      {/* Mobile: Icon only */}
+                      <div className="sm:hidden">
+                        {shop.shopType === 'Product Seller' ? (
+                          <div className="bg-blue-500 text-white rounded-full p-1.5 w-8 h-8 flex items-center justify-center">
+                            <Package className="h-4 w-4" />
+                          </div>
+                        ) : (
+                          <div className="bg-green-500 text-white rounded-full p-1.5 w-8 h-8 flex items-center justify-center">
+                            <Wrench className="h-4 w-4" />
+                          </div>
+                        )}
+                      </div>
+                      {/* Desktop: Full badge */}
+                      <div className="hidden sm:block">
+                        <UIBadge 
+                          variant={shop.shopType === 'Product Seller' ? 'default' : 'secondary'}
+                          className="text-sm px-3 py-1"
+                        >
+                          {shop.shopType}
+                        </UIBadge>
+                      </div>
+                      <div className="flex items-center">
+                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
+                        <span className="font-medium">{shop.rating}</span>
+                        <span className="text-white/80 ml-1">({shop.totalReviews} reviews)</span>
+                      </div>
+                    </div>
                   </div>
+                  
+                  {/* Shop Owner Actions */}
+                  {currentUser && String(shop.owner) === String(currentUser._id) && (
+                    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto min-w-0">
+                      {/* Mobile: Small icon buttons */}
+                      <div className="flex gap-2 sm:hidden">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => navigate(`/shop/${shopId}/edit`)}
+                          className="bg-white/10 border-white/20 text-white hover:bg-white/20 h-8 w-8"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          onClick={() => setShowDeleteConfirm(true)}
+                          className="bg-red-600/80 border-red-600/20 text-white hover:bg-red-600 h-8 w-8"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      {/* Desktop: Full buttons */}
+                      <div className="hidden sm:flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate(`/shop/${shopId}/edit`)}
+                          className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit Shop
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setShowDeleteConfirm(true)}
+                          className="bg-red-600/80 border-red-600/20 text-white hover:bg-red-600"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete Shop
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -433,9 +646,17 @@ export default function Shop() {
                   <CardTitle>About This Shop</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-muted-foreground leading-relaxed">
-                    {shop.shopDescription || shop.description || ''}
-                  </p>
+                  <div 
+                    className="text-muted-foreground leading-relaxed prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ 
+                      __html: shop.shopDescription || shop.description || '' 
+                    }}
+                    style={{ 
+                      direction: 'ltr',
+                      whiteSpace: 'pre-wrap',
+                      wordWrap: 'break-word'
+                    }}
+                  />
                   <div className="flex flex-wrap gap-2 mt-4">
                     {(shop.categories || []).map((category: string) => (
                       <UIBadge key={category} variant="outline">
@@ -449,23 +670,152 @@ export default function Shop() {
               {/* Gallery */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Gallery</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Gallery</CardTitle>
+                    {currentUser && String(shop.owner) === String(currentUser._id) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowGalleryUpload(!showGalleryUpload)}
+                      >
+                        {showGalleryUpload ? 'Cancel' : 'Add Images'}
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
+                  {/* Gallery Upload Section for Shop Owner */}
+                  {showGalleryUpload && currentUser && String(shop.owner) === String(currentUser._id) && (
+                    <div className="mb-6 p-4 border rounded-lg bg-muted/30">
+                      <h4 className="font-medium mb-3">Upload Gallery Images</h4>
+                      
+                      {/* Drag & Drop Area */}
+                      <div
+                        className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                          dragActive ? 'border-primary bg-primary/5' : 'border-border'
+                        }`}
+                        onDragEnter={handleGalleryDrag}
+                        onDragLeave={handleGalleryDrag}
+                        onDragOver={handleGalleryDrag}
+                        onDrop={handleGalleryDrop}
+                      >
+                        <ImageIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Drag and drop images here, or click to select
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => galleryInputRef.current?.click()}
+                        >
+                          Choose Images
+                        </Button>
+                        <input
+                          ref={galleryInputRef}
+                          type="file"
+                          multiple
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleGalleryUpload(e.target.files)}
+                        />
+                      </div>
+
+                      {/* Preview Uploaded Images */}
+                      {galleryPreviews.length > 0 && (
+                        <div className="mt-4">
+                          <h5 className="font-medium mb-2">Preview ({galleryPreviews.length} images)</h5>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                            {galleryPreviews.map((preview, index) => (
+                              <div key={index} className="relative aspect-square rounded-lg overflow-hidden">
+                                <img
+                                  src={preview}
+                                  alt={`Preview ${index + 1}`}
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  onClick={() => removeGalleryImage(index)}
+                                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-4 flex gap-2">
+                            <Button
+                              onClick={handleUploadGallery}
+                              disabled={isUploadingGallery}
+                              className="flex-1"
+                            >
+                              {isUploadingGallery ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Uploading...
+                                </>
+                              ) : (
+                                'Upload Images'
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                setShowGalleryUpload(false);
+                                setGalleryFiles([]);
+                                setGalleryPreviews([]);
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Gallery Display */}
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     {shop.gallery && shop.gallery.length > 0 ? shop.gallery.map((image: string, index: number) => (
                       <motion.div
                         key={index}
                         whileHover={{ scale: 1.05 }}
-                        className="aspect-square rounded-lg overflow-hidden"
+                        className="relative aspect-square rounded-lg overflow-hidden group"
                       >
                         <img
                           src={image}
                           alt={`Gallery ${index + 1}`}
                           className="w-full h-full object-cover"
                         />
+                        {/* Delete button for shop owner */}
+                        {currentUser && String(shop.owner) === String(currentUser._id) && (
+                          <button
+                            onClick={() => handleDeleteGalleryImage(index)}
+                            disabled={deletingGalleryImage === index}
+                            className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            {deletingGalleryImage === index ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3 h-3" />
+                            )}
+                          </button>
+                        )}
                       </motion.div>
-                    )) : <div className="text-muted-foreground">No images available.</div>}
+                    )) : (
+                      <div className="col-span-full text-center py-8 text-muted-foreground">
+                        {currentUser && String(shop.owner) === String(currentUser._id) ? (
+                          <div>
+                            <ImageIcon className="w-12 h-12 mx-auto mb-2 text-muted-foreground/50" />
+                            <p>No images in gallery yet.</p>
+                            <p className="text-sm">Click "Add Images" to upload photos to your gallery.</p>
+                          </div>
+                        ) : (
+                          <div>
+                            <ImageIcon className="w-12 h-12 mx-auto mb-2 text-muted-foreground/50" />
+                            <p>No images available.</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -479,11 +829,7 @@ export default function Shop() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                       {(shop.products as ProductType[]).map((product, idx) => {
                         // Use the product.image if available, otherwise use a fallback image
-                        const imageUrl = product.image
-                          ? (product.image.startsWith('/uploads/')
-                              ? `${API_BASE_URL}${product.image}`
-                              : `${API_BASE_URL}/uploads/${product.image}`)
-                          : heroStoreImage;
+                        const imageUrl = product.image || heroStoreImage;
                         return (
                           <div key={idx} className="rounded-xl border bg-card shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden flex flex-col">
                             <div className="relative w-full h-48 bg-muted flex items-center justify-center">
@@ -496,6 +842,32 @@ export default function Shop() {
                                 <span className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
                                   -{product.discountPercentage}%
                                 </span>
+                              )}
+                              {/* Mobile: Product action buttons in top right */}
+                              {currentUser && shop && String(currentUser._id) === String(shop.owner) && (
+                                <div className="absolute top-2 left-2 flex gap-1 sm:hidden">
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => handleEditProduct(idx)}
+                                    className="bg-white/80 hover:bg-white h-7 w-7"
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    size="icon"
+                                    onClick={() => setDeleteProductIndex(idx)}
+                                    disabled={isDeletingProduct}
+                                    className="bg-red-500/80 hover:bg-red-500 h-7 w-7"
+                                  >
+                                    {isDeletingProduct && deleteProductIndex === idx ? (
+                                      <Loader2 className="animate-spin h-3 w-3" />
+                                    ) : (
+                                      <Trash2 className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                </div>
                               )}
                             </div>
                             <div className="p-4 flex-1 flex flex-col">
@@ -512,9 +884,15 @@ export default function Shop() {
                               </div>
                               {/* Removed additional images preview since only one image is supported */}
                             </div>
+                            {/* Desktop: Product action buttons */}
                             {currentUser && shop && String(currentUser._id) === String(shop.owner) && (
-                              <div className="flex gap-2 mt-2">
-                                <Button size="sm" variant="outline" onClick={() => handleEditProduct(idx)}>
+                              <div className="hidden sm:flex flex-col sm:flex-row gap-2 mt-2 w-full min-w-0">
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  onClick={() => handleEditProduct(idx)}
+                                  className="flex-1 sm:flex-none min-w-0"
+                                >
                                   Edit
                                 </Button>
                                 <Button 
@@ -522,6 +900,7 @@ export default function Shop() {
                                   variant="destructive" 
                                   onClick={() => setDeleteProductIndex(idx)}
                                   disabled={isDeletingProduct}
+                                  className="flex-1 sm:flex-none min-w-0"
                                 >
                                   {isDeletingProduct && deleteProductIndex === idx ? (
                                     <Loader2 className="animate-spin w-4 h-4" />
@@ -620,11 +999,14 @@ export default function Shop() {
               <Card>
                 <CardContent className="pt-6">
                   <div className="space-y-3">
-                    <Button className="w-full" size="lg">
-                      Contact Shop
-                    </Button>
-                    <Button variant="outline" className="w-full">
-                      Share Shop
+                    <Button 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={handleShare}
+                      disabled={sharing}
+                    >
+                      <Share2 className="h-4 w-4 mr-2" />
+                      {sharing ? 'Copying...' : 'Share Shop'}
                     </Button>
                   </div>
                 </CardContent>
@@ -818,6 +1200,41 @@ export default function Shop() {
                       </>
                     ) : (
                       'Delete Product'
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Delete Shop Confirmation Dialog */}
+          {showDeleteConfirm && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-background p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
+                <h3 className="text-lg font-semibold mb-4">Delete Shop</h3>
+                <p className="text-muted-foreground mb-6">
+                  Are you sure you want to delete this shop? This action cannot be undone and will permanently remove all shop data, products, and images.
+                </p>
+                <div className="flex gap-3 justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={isDeletingShop}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={handleDeleteShop}
+                    disabled={isDeletingShop}
+                  >
+                    {isDeletingShop ? (
+                      <>
+                        <Loader2 className="animate-spin w-4 h-4 mr-2" />
+                        Deleting...
+                      </>
+                    ) : (
+                      'Delete Shop'
                     )}
                   </Button>
                 </div>

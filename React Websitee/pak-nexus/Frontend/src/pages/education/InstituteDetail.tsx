@@ -80,8 +80,7 @@ export default function InstituteDetail() {
   // Helper function to get full image URL
   const getImageUrl = (imagePath: string | undefined) => {
     if (!imagePath) return null
-    if (imagePath.startsWith('http')) return imagePath
-    return `${API_BASE_URL}${imagePath}`
+    return imagePath
   }
 
   // Check authentication
@@ -337,6 +336,16 @@ export default function InstituteDetail() {
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Institutes
+          </Button>
+
+          {/* Institute Dashboard Button - Visible to all users */}
+          <Button
+            variant="default"
+            className="absolute top-4 right-4 bg-primary text-white hover:bg-primary/90 shadow-lg"
+            onClick={() => navigate(`/education/institute/${institute._id}/dashboard`)}
+          >
+            <Building2 className="h-4 w-4 mr-2" />
+            Institute Dashboard
           </Button>
 
           {/* Institute Info Overlay */}
@@ -635,11 +644,11 @@ export default function InstituteDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent className="w-56">
-                      <DropdownMenuItem onClick={() => navigate(`/education/courses/${id}`)}>
+                      <DropdownMenuItem onClick={() => navigate(`/education/institute/${id}/courses`)}>
                         All Courses
                       </DropdownMenuItem>
                       {institute.specialization && institute.specialization.split(', ').map((course, index) => (
-                        <DropdownMenuItem key={index} onClick={() => navigate(`/education/courses/${id}?specialization=${course}`)}>
+                        <DropdownMenuItem key={index} onClick={() => navigate(`/education/institute/${id}/courses?specialization=${course}`)}>
                           {course}
                         </DropdownMenuItem>
                       ))}

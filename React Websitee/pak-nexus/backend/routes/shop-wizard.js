@@ -4,26 +4,10 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const Shop = require('../models/Shop');
-const ensureAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated()) return next();
-  res.status(401).json({ error: 'Not authenticated' });
-};
+const { ensureAuthenticated } = require('../middleware/auth');
+const { upload: cloudinaryUpload, cloudinary } = require('../middleware/cloudinary');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadsDir = path.join(__dirname, '..', 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    cb(null, uploadsDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
+// File filter for image uploads
 const fileFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png|gif|webp/;
   const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
@@ -36,8 +20,9 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+// Configure upload with cloudinary and file filter
 const upload = multer({
-  storage: storage,
+  storage: cloudinaryUpload.storage,
   limits: {
     fileSize: 5 * 1024 * 1024 // 5MB limit
   },
@@ -48,6 +33,7 @@ const upload = multer({
 router.post('/create', ensureAuthenticated, upload.fields([
   { name: 'shopLogo', maxCount: 1 },
   { name: 'shopBanner', maxCount: 1 },
+  { name: 'ownerProfilePhoto', maxCount: 1 },
   { name: 'productImages', maxCount: 10 }
 ]), async (req, res) => {
   try {
@@ -92,13 +78,18 @@ router.post('/create', ensureAuthenticated, upload.fields([
     // Handle file uploads
     let shopLogoPath = '';
     let shopBannerPath = '';
+    let ownerProfilePath = '';
 
     if (req.files.shopLogo) {
-      shopLogoPath = `/uploads/${req.files.shopLogo[0].filename}`;
+      shopLogoPath = req.files.shopLogo[0].path; // Cloudinary URL
     }
 
     if (req.files.shopBanner) {
-      shopBannerPath = `/uploads/${req.files.shopBanner[0].filename}`;
+      shopBannerPath = req.files.shopBanner[0].path; // Cloudinary URL
+    }
+
+    if (req.files.ownerProfilePhoto) {
+      ownerProfilePath = req.files.ownerProfilePhoto[0].path; // Cloudinary URL
     }
 
     // Process product images
@@ -111,7 +102,7 @@ router.post('/create', ensureAuthenticated, upload.fields([
       
       return {
         ...product,
-        image: productImage ? `/uploads/${productImage.filename}` : '',
+        image: productImage ? productImage.path : '', // Cloudinary URL
         imagePreview: product.imagePreview || ''
       };
     });
@@ -125,6 +116,7 @@ router.post('/create', ensureAuthenticated, upload.fields([
       categories: parsedCategories,
       shopLogo: shopLogoPath,
       shopBanner: shopBannerPath,
+      ownerProfilePhoto: ownerProfilePath,
       websiteUrl: websiteUrl || '',
       facebookUrl: facebookUrl || '',
       instagramHandle: instagramHandle || '',
@@ -134,7 +126,7 @@ router.post('/create', ensureAuthenticated, upload.fields([
       totalReviews: 0,
       owner: req.user._id,
       ownerName: req.user.username || req.user.email || '',
-      ownerDp: req.user.profileImage || ''
+      ownerDp: ownerProfilePath || req.user.profileImage || ''
     };
 
     console.log('Creating shop with data:', shopData);

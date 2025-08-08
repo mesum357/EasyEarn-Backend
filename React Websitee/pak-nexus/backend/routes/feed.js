@@ -10,31 +10,37 @@ const Notification = require('../models/Notification');
 
 const { ensureAuthenticated } = require('../middleware/auth');
 
-// Multer config for image uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadsDir = path.join(__dirname, '..', 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    cb(null, uploadsDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+const { upload: cloudinaryUpload, cloudinary } = require('../middleware/cloudinary');
+
+// Configure upload with cloudinary
+const upload = multer({
+  storage: cloudinaryUpload.storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
   }
 });
-const upload = multer({ storage });
 
 // Create a post
 router.post('/post', ensureAuthenticated, upload.single('image'), async (req, res) => {
   try {
-    const { content } = req.body;
+    const { content, city, location, hashtags } = req.body;
     if (!content) return res.status(400).json({ error: 'Content is required' });
+    
+    // Parse hashtags if provided
+    let hashtagsArray = [];
+    if (hashtags) {
+      hashtagsArray = hashtags.split(' ')
+        .filter(tag => tag.startsWith('#'))
+        .map(tag => tag.trim());
+    }
+    
     const post = new Post({
       user: req.user._id,
       content,
-      image: req.file ? `/uploads/${req.file.filename}` : undefined
+      city: city || undefined,
+      location: location || undefined,
+      hashtags: hashtagsArray,
+      image: req.file ? req.file.path : undefined // Cloudinary URL
     });
     await post.save();
     res.status(201).json({ post });
@@ -309,17 +315,29 @@ router.post('/notifications/read', ensureAuthenticated, async (req, res) => {
 // Get trending hashtags
 router.get('/trending-hashtags', async (req, res) => {
   try {
-    // Extract hashtags from posts and count their occurrences
-    const posts = await Post.find({}, 'content');
+    // Get posts with hashtags field and content
+    const posts = await Post.find({}, 'content hashtags');
     
     const hashtagCounts = {};
     const hashtagRegex = /#(\w+)/g;
     
     posts.forEach(post => {
-      let match;
-      while ((match = hashtagRegex.exec(post.content)) !== null) {
-        const hashtag = match[1].toLowerCase();
-        hashtagCounts[hashtag] = (hashtagCounts[hashtag] || 0) + 1;
+      // Count hashtags from the dedicated hashtags field
+      if (post.hashtags && Array.isArray(post.hashtags)) {
+        post.hashtags.forEach(hashtag => {
+          // Remove # if present and convert to lowercase
+          const cleanHashtag = hashtag.replace(/^#/, '').toLowerCase();
+          hashtagCounts[cleanHashtag] = (hashtagCounts[cleanHashtag] || 0) + 1;
+        });
+      }
+      
+      // Also count hashtags from post content (for backward compatibility)
+      if (post.content) {
+        let match;
+        while ((match = hashtagRegex.exec(post.content)) !== null) {
+          const hashtag = match[1].toLowerCase();
+          hashtagCounts[hashtag] = (hashtagCounts[hashtag] || 0) + 1;
+        }
       }
     });
     
@@ -395,7 +413,7 @@ router.put('/profile/update', ensureAuthenticated, upload.single('profileImage')
 
     // Handle profile image upload
     if (req.file) {
-      user.profileImage = `/uploads/${req.file.filename}`;
+      user.profileImage = req.file.path; // Cloudinary URL
     }
 
     // Update other fields

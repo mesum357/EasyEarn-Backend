@@ -1,12 +1,33 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const Shop = require('../models/Shop');
-const upload = require('../middleware/upload');
+const { ensureAuthenticated } = require('../middleware/auth');
+const { upload: cloudinaryUpload, cloudinary } = require('../middleware/cloudinary');
 
-const ensureAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated()) return next();
-  res.status(401).json({ error: 'Not authenticated' });
+// File filter for image uploads
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp/;
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = allowedTypes.test(file.mimetype);
+
+  if (mimetype && extname) {
+    return cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed!'));
+  }
 };
+
+// Configure upload with cloudinary and file filter
+const upload = multer({
+  storage: cloudinaryUpload.storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: fileFilter
+});
 
 // Create basic shop
 router.post('/create', ensureAuthenticated, upload.single('shopLogo'), async (req, res) => {
@@ -28,7 +49,7 @@ router.post('/create', ensureAuthenticated, upload.single('shopLogo'), async (re
       categories: Array.isArray(businessCategories) ? businessCategories : [businessCategories],
       shopType: businessType,
       shopDescription: description,
-      shopLogo: req.file ? `/uploads/${req.file.filename}` : null,
+      shopLogo: req.file ? req.file.path : null, // Cloudinary URL
       facebookUrl: facebook || '',
       instagramHandle: instagram || '',
       whatsappNumber: whatsapp || '',
@@ -78,17 +99,215 @@ router.get('/my-shops', ensureAuthenticated, async (req, res) => {
   }
 });
 
-// Get single shop by ID
-router.get('/:id', async (req, res) => {
+// Get shop by ID
+router.get('/:shopId', async (req, res) => {
   try {
-    const shop = await Shop.findById(req.params.id);
+    const shop = await Shop.findById(req.params.shopId);
     if (!shop) {
       return res.status(404).json({ error: 'Shop not found' });
     }
     res.json({ shop });
   } catch (error) {
     console.error('Error fetching shop:', error);
+    res.status(500).json({ error: 'Failed to fetch shop' });
+  }
+});
+
+// Update shop
+router.put('/:shopId', ensureAuthenticated, upload.fields([
+  { name: 'shopLogo', maxCount: 1 },
+  { name: 'shopBanner', maxCount: 1 },
+  { name: 'ownerProfilePhoto', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const shop = await Shop.findById(req.params.shopId);
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    // Check if user is the shop owner
+    if (shop.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Only shop owner can update shop' });
+    }
+
+    const {
+      shopName,
+      city,
+      shopType,
+      shopDescription,
+      categories,
+      whatsappNumber,
+      facebookUrl,
+      instagramHandle,
+      websiteUrl
+    } = req.body;
+
+    // Update shop fields
+    if (shopName) shop.shopName = shopName;
+    if (city) shop.city = city;
+    if (shopType) shop.shopType = shopType;
+    if (shopDescription) shop.shopDescription = shopDescription;
+    if (categories) {
+      try {
+        const parsedCategories = JSON.parse(categories);
+        shop.categories = Array.isArray(parsedCategories) ? parsedCategories : [parsedCategories];
+      } catch (error) {
+        shop.categories = Array.isArray(categories) ? categories : [categories];
+      }
+    }
+    if (whatsappNumber) shop.whatsappNumber = whatsappNumber;
+    if (facebookUrl) shop.facebookUrl = facebookUrl;
+    if (instagramHandle) shop.instagramHandle = instagramHandle;
+    if (websiteUrl) shop.websiteUrl = websiteUrl;
+
+    // Handle file uploads
+    if (req.files) {
+      if (req.files.shopLogo) {
+        shop.shopLogo = req.files.shopLogo[0].path; // Cloudinary URL
+      }
+      if (req.files.shopBanner) {
+        shop.shopBanner = req.files.shopBanner[0].path; // Cloudinary URL
+      }
+      if (req.files.ownerProfilePhoto) {
+        shop.ownerProfilePhoto = req.files.ownerProfilePhoto[0].path; // Cloudinary URL
+      }
+    }
+
+    await shop.save();
+    res.json({ message: 'Shop updated successfully', shop });
+  } catch (error) {
+    console.error('Error updating shop:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete shop
+router.delete('/:shopId', ensureAuthenticated, async (req, res) => {
+  try {
+    const shop = await Shop.findById(req.params.shopId);
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    // Check if user is the shop owner
+    if (shop.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Only shop owner can delete shop' });
+    }
+
+    // Delete associated files
+    const filesToDelete = [
+      shop.shopLogo,
+      shop.shopBanner,
+      shop.ownerProfilePhoto,
+      ...(shop.gallery || [])
+    ].filter(Boolean);
+
+    filesToDelete.forEach(filePath => {
+      const fullPath = path.join(__dirname, '..', filePath);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    });
+
+    // Delete shop products images
+    if (shop.products && shop.products.length > 0) {
+      shop.products.forEach(product => {
+        if (product.image) {
+          const productImagePath = path.join(__dirname, '..', product.image);
+          if (fs.existsSync(productImagePath)) {
+            fs.unlinkSync(productImagePath);
+          }
+        }
+      });
+    }
+
+    await Shop.findByIdAndDelete(req.params.shopId);
+    res.json({ message: 'Shop deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting shop:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload gallery images
+router.post('/:shopId/gallery', ensureAuthenticated, upload.array('galleryImages', 10), async (req, res) => {
+  try {
+    const shop = await Shop.findById(req.params.shopId);
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    // Check if user is the shop owner
+    if (shop.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Only shop owner can upload gallery images' });
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No images uploaded' });
+    }
+
+    // Process uploaded images
+    const newGalleryImages = req.files.map(file => file.path); // Cloudinary URLs
+    
+    // Add new images to existing gallery
+    const updatedGallery = [...(shop.gallery || []), ...newGalleryImages];
+    
+    // Update shop with new gallery
+    shop.gallery = updatedGallery;
+    await shop.save();
+
+    res.json({ 
+      success: true, 
+      message: 'Gallery images uploaded successfully',
+      gallery: updatedGallery
+    });
+
+  } catch (error) {
+    console.error('Error uploading gallery images:', error);
+    res.status(500).json({ error: 'Failed to upload gallery images' });
+  }
+});
+
+// Delete gallery image
+router.delete('/:shopId/gallery/:imageIndex', ensureAuthenticated, async (req, res) => {
+  try {
+    const shop = await Shop.findById(req.params.shopId);
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    // Check if user is the shop owner
+    if (shop.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Only shop owner can delete gallery images' });
+    }
+
+    const imageIndex = parseInt(req.params.imageIndex);
+    if (imageIndex < 0 || imageIndex >= (shop.gallery || []).length) {
+      return res.status(400).json({ error: 'Invalid image index' });
+    }
+
+    // Get the image path to delete the file
+    const imagePath = shop.gallery[imageIndex];
+    if (imagePath) {
+      const fullPath = path.join(__dirname, '..', imagePath);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    }
+
+    // Remove image from gallery array
+    shop.gallery.splice(imageIndex, 1);
+    await shop.save();
+
+    res.json({ 
+      success: true, 
+      message: 'Gallery image deleted successfully',
+      gallery: shop.gallery
+    });
+
+  } catch (error) {
+    console.error('Error deleting gallery image:', error);
+    res.status(500).json({ error: 'Failed to delete gallery image' });
   }
 });
 
@@ -113,7 +332,7 @@ router.post('/:id/add-product', ensureAuthenticated, upload.single('productImage
       price: Number(price),
       discountPercentage: Number(discountPercentage) || 0,
       category,
-      image: req.file ? `/uploads/${req.file.filename}` : ''
+      image: req.file ? req.file.path : '' // Cloudinary URL
     };
     shop.products.push(product);
     await shop.save();
@@ -146,7 +365,7 @@ router.put('/:shopId/update-product/:productIndex', ensureAuthenticated, upload.
     if (price) shop.products[idx].price = Number(price);
     if (discountPercentage !== undefined) shop.products[idx].discountPercentage = Number(discountPercentage) || 0;
     if (category) shop.products[idx].category = category;
-    if (req.file) shop.products[idx].image = `/uploads/${req.file.filename}`;
+    if (req.file) shop.products[idx].image = req.file.path; // Cloudinary URL
     await shop.save();
     res.json({ message: 'Product updated successfully', shop });
   } catch (error) {
