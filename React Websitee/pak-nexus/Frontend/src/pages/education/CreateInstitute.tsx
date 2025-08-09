@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Upload, Plus, X } from 'lucide-react'
+import { ArrowLeft, Upload, Plus, X, Crop } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,8 @@ import { useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { API_BASE_URL } from '@/lib/config'
 import { useToast } from '@/hooks/use-toast'
+import { ImageCropper } from '@/components/ui/image-cropper'
+import { RichTextEditor } from '@/components/ui/rich-text-editor'
 
 const steps = [
   "Basic Information",
@@ -37,6 +39,12 @@ export default function CreateInstitute() {
   const [bannerPreview, setBannerPreview] = useState<string | null>(null)
   const { toast } = useToast();
   const [courseError, setCourseError] = useState<string | null>(null);
+  
+  // Image cropper states
+  const [showLogoCropper, setShowLogoCropper] = useState(false)
+  const [showBannerCropper, setShowBannerCropper] = useState(false)
+  const [tempLogoFile, setTempLogoFile] = useState<File | null>(null)
+  const [tempBannerFile, setTempBannerFile] = useState<File | null>(null)
 
   // Fetch institute data if editing
   useEffect(() => {
@@ -109,14 +117,57 @@ export default function CreateInstitute() {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       if (type === 'logo') {
-        setLogoFile(file);
-        setLogoPreview(URL.createObjectURL(file));
+        setTempLogoFile(file);
+        setShowLogoCropper(true);
       }
       if (type === 'banner') {
-        setBannerFile(file);
-        setBannerPreview(URL.createObjectURL(file));
+        setTempBannerFile(file);
+        setShowBannerCropper(true);
       }
     }
+  }
+
+  // Handle cropped logo
+  const handleLogoCropComplete = (croppedFile: File) => {
+    setLogoFile(croppedFile);
+    setLogoPreview(URL.createObjectURL(croppedFile));
+    setTempLogoFile(null);
+    setShowLogoCropper(false);
+  }
+
+  // Handle cropped banner
+  const handleBannerCropComplete = (croppedFile: File) => {
+    setBannerFile(croppedFile);
+    setBannerPreview(URL.createObjectURL(croppedFile));
+    setTempBannerFile(null);
+    setShowBannerCropper(false);
+  }
+
+  // Handle editing existing logo
+  const handleEditLogo = () => {
+    if (logoFile) {
+      setTempLogoFile(logoFile);
+      setShowLogoCropper(true);
+    }
+  }
+
+  // Handle editing existing banner
+  const handleEditBanner = () => {
+    if (bannerFile) {
+      setTempBannerFile(bannerFile);
+      setShowBannerCropper(true);
+    }
+  }
+
+  // Close cropper without applying
+  const handleCloseLogoCropper = () => {
+    setShowLogoCropper(false);
+    setTempLogoFile(null);
+  }
+
+  const handleCloseBannerCropper = () => {
+    setShowBannerCropper(false);
+    setTempBannerFile(null);
   }
 
   // Submit handler
@@ -241,16 +292,16 @@ export default function CreateInstitute() {
     switch (currentStep) {
       case 0:
         return (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4 sm:space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div>
-                <Label htmlFor="name">Institute Name *</Label>
-                <Input id="name" placeholder="Enter institute name" value={form.name || ''} onChange={handleChange} />
+                <Label htmlFor="name" className="text-sm sm:text-base">Institute Name *</Label>
+                <Input id="name" placeholder="Enter institute name" value={form.name || ''} onChange={handleChange} className="h-10 sm:h-10" />
               </div>
               <div>
-                <Label htmlFor="type">Institute Type *</Label>
+                <Label htmlFor="type" className="text-sm sm:text-base">Institute Type *</Label>
                 <Select value={form.type} onValueChange={value => setForm({ ...form, type: value })}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-10 sm:h-10">
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -264,24 +315,24 @@ export default function CreateInstitute() {
             </div>
             
             <div>
-              <Label htmlFor="description">Description *</Label>
-              <Textarea 
-                id="description" 
+              <Label htmlFor="description" className="text-sm sm:text-base">Description *</Label>
+              <RichTextEditor
+                value={form.description || ''}
+                onChange={(value) => setForm({ ...form, description: value })}
                 placeholder="Describe your institute, its mission, and what makes it unique"
-                className="min-h-32"
-                value={form.description}
-                onChange={handleChange}
+                rows={6}
+                maxLength={2000}
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div>
-                <Label htmlFor="establishedYear">Year Established</Label>
-                <Input id="establishedYear" type="number" placeholder="e.g. 1984" value={form.establishedYear || ''} onChange={handleChange} />
+                <Label htmlFor="establishedYear" className="text-sm sm:text-base">Year Established</Label>
+                <Input id="establishedYear" type="number" placeholder="e.g. 1984" value={form.establishedYear || ''} onChange={handleChange} className="h-10 sm:h-10" />
               </div>
               <div>
-                <Label htmlFor="totalStudents">Number of Students</Label>
-                <Input id="totalStudents" placeholder="e.g. 5000" value={form.totalStudents || ''} onChange={handleChange} />
+                <Label htmlFor="totalStudents" className="text-sm sm:text-base">Number of Students</Label>
+                <Input id="totalStudents" placeholder="e.g. 5000" value={form.totalStudents || ''} onChange={handleChange} className="h-10 sm:h-10" />
               </div>
             </div>
           </div>
@@ -353,57 +404,111 @@ export default function CreateInstitute() {
 
       case 2:
         return (
-          <div className="space-y-6">
+          <div className="space-y-3 pb-1">
             <div>
               <Label>Institute Logo *</Label>
-              <div className="mt-2 border-2 border-dashed border-border rounded-lg p-8 text-center">
+              <div className="mt-2 border-2 border-dashed border-border rounded-lg p-3 text-center">
                 {logoPreview ? (
-                  <img src={logoPreview} alt="Logo Preview" className="mx-auto mb-4 w-24 h-24 object-cover rounded-full" />
+                  <div className="space-y-1">
+                    <img src={logoPreview} alt="Logo Preview" className="mx-auto w-16 h-16 object-cover rounded-full" />
+                    <div className="flex gap-2 justify-center flex-wrap">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="text-xs px-3 py-1"
+                        onClick={handleEditLogo}
+                      >
+                        <Crop className="h-3 w-3 mr-1" />
+                        Adjust & Crop
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="text-xs px-3 py-1"
+                        onClick={() => {
+                          setLogoFile(null);
+                          setLogoPreview(null);
+                        }}
+                      >
+                        <X className="h-3 w-3 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
-                  <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <>
+                    <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-muted-foreground mb-1">Upload your institute logo</p>
+                    <p className="text-sm text-muted-foreground">PNG, JPG up to 5MB</p>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleFileChange(e, 'logo')}
+                      className="hidden"
+                      id="logo-upload"
+                    />
+                    <Button variant="outline" className="mt-2" onClick={() => document.getElementById('logo-upload')?.click()}>
+                      Choose File
+                    </Button>
+                  </>
                 )}
-                <p className="text-muted-foreground mb-2">Upload your institute logo</p>
-                <p className="text-sm text-muted-foreground">PNG, JPG up to 5MB</p>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => handleFileChange(e, 'logo')}
-                  className="hidden"
-                  id="logo-upload"
-                />
-                <Button variant="outline" className="mt-4" onClick={() => document.getElementById('logo-upload')?.click()}>
-                  Choose File
-                </Button>
               </div>
             </div>
 
             <div>
               <Label>Banner Image *</Label>
-              <div className="mt-2 border-2 border-dashed border-border rounded-lg p-8 text-center">
+              <div className="mt-2 border-2 border-dashed border-border rounded-lg p-3 text-center">
                 {bannerPreview ? (
-                  <img src={bannerPreview} alt="Banner Preview" className="mx-auto mb-4 w-full max-w-lg h-32 object-cover rounded-lg" />
+                  <div className="space-y-1">
+                    <img src={bannerPreview} alt="Banner Preview" className="mx-auto w-full max-w-lg h-16 object-cover rounded-lg" />
+                    <div className="flex gap-2 justify-center flex-wrap">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="text-xs px-3 py-1"
+                        onClick={handleEditBanner}
+                      >
+                        <Crop className="h-3 w-3 mr-1" />
+                        Adjust & Crop
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="text-xs px-3 py-1"
+                        onClick={() => {
+                          setBannerFile(null);
+                          setBannerPreview(null);
+                        }}
+                      >
+                        <X className="h-3 w-3 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
-                  <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <>
+                    <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-muted-foreground mb-1">Upload a banner image of your institute</p>
+                    <p className="text-sm text-muted-foreground">PNG, JPG up to 10MB (Recommended: 1200x600px)</p>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleFileChange(e, 'banner')}
+                      className="hidden"
+                      id="banner-upload"
+                    />
+                    <Button variant="outline" className="mt-2" onClick={() => document.getElementById('banner-upload')?.click()}>
+                      Choose File
+                    </Button>
+                  </>
                 )}
-                <p className="text-muted-foreground mb-2">Upload a banner image of your institute</p>
-                <p className="text-sm text-muted-foreground">PNG, JPG up to 10MB (Recommended: 1200x600px)</p>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => handleFileChange(e, 'banner')}
-                  className="hidden"
-                  id="banner-upload"
-                />
-                <Button variant="outline" className="mt-4" onClick={() => document.getElementById('banner-upload')?.click()}>
-                  Choose File
-                </Button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="color">Brand Color</Label>
-                <Input id="color" type="color" className="h-12" value={form.color || '#000000'} onChange={handleChange} />
+                <Input id="color" type="color" className="h-10" value={form.color || '#000000'} onChange={handleChange} />
               </div>
               <div>
                 <Label htmlFor="tagline">Tagline</Label>
@@ -529,25 +634,26 @@ export default function CreateInstitute() {
     <div className="min-h-screen bg-background">
       <Navbar />
       
-      <div className="pt-20">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="pt-16 sm:pt-20">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
           {/* Header */}
           <motion.div
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.6 }}
-            className="flex items-center gap-4 mb-8"
+            className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mb-6 sm:mb-8"
           >
             <Button
               variant="ghost"
               onClick={() => navigate('/education')}
+              className="w-full sm:w-auto"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">Create Institute Profile</h1>
-              <p className="text-muted-foreground">Share your educational institute with students</p>
+            <div className="text-center sm:text-left">
+              <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Create Institute Profile</h1>
+              <p className="text-muted-foreground text-sm sm:text-base">Share your educational institute with students</p>
             </div>
           </motion.div>
 
@@ -556,13 +662,13 @@ export default function CreateInstitute() {
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.2, duration: 0.6 }}
-            className="mb-8"
+            className="mb-6 sm:mb-8"
           >
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-0">
               {steps.map((step, index) => (
-                <div key={index} className="flex items-center flex-1">
+                <div key={index} className="flex items-center flex-1 w-full sm:w-auto">
                   <div className={`
-                    w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium
+                    w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-xs sm:text-sm font-medium
                     ${index <= currentStep 
                       ? 'bg-primary text-white' 
                       : 'bg-muted text-muted-foreground'
@@ -570,15 +676,15 @@ export default function CreateInstitute() {
                   `}>
                     {index + 1}
                   </div>
-                  <div className="ml-3 flex-1">
-                    <p className={`text-sm font-medium ${
+                  <div className="ml-2 sm:ml-3 flex-1">
+                    <p className={`text-xs sm:text-sm font-medium ${
                       index <= currentStep ? 'text-foreground' : 'text-muted-foreground'
                     }`}>
                       {step}
                     </p>
                   </div>
                   {index < steps.length - 1 && (
-                    <div className={`h-0.5 flex-1 mx-4 ${
+                    <div className={`h-0.5 flex-1 mx-2 sm:mx-4 hidden sm:block ${
                       index < currentStep ? 'bg-primary' : 'bg-muted'
                     }`} />
                   )}
@@ -595,10 +701,10 @@ export default function CreateInstitute() {
             transition={{ duration: 0.4 }}
           >
             <Card>
-              <CardHeader>
-                <CardTitle>{steps[currentStep]}</CardTitle>
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg sm:text-xl">{steps[currentStep]}</CardTitle>
               </CardHeader>
-              <CardContent className="p-6">
+              <CardContent className="p-4 sm:p-6">
                 {renderStepContent()}
               </CardContent>
             </Card>
@@ -609,28 +715,50 @@ export default function CreateInstitute() {
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.3, duration: 0.6 }}
-            className="flex justify-between mt-8"
+            className="flex flex-col sm:flex-row justify-between gap-3 sm:gap-0 mt-6 sm:mt-8"
           >
             <Button
               variant="outline"
               onClick={prevStep}
               disabled={currentStep === 0}
+              className="w-full sm:w-auto order-2 sm:order-1"
             >
               Previous
             </Button>
             
             {currentStep === steps.length - 1 ? (
-              <Button className="bg-primary hover:bg-primary/90" onClick={handleSubmit} disabled={isSubmitting}>
+              <Button className="bg-primary hover:bg-primary/90 w-full sm:w-auto order-1 sm:order-2" onClick={handleSubmit} disabled={isSubmitting}>
                 {isSubmitting ? 'Submitting...' : 'Submit Institute'}
               </Button>
             ) : (
-              <Button onClick={nextStep}>
+              <Button onClick={nextStep} className="w-full sm:w-auto order-1 sm:order-2">
                 Next
               </Button>
             )}
           </motion.div>
         </div>
       </div>
+
+      {/* Image Cropper Components */}
+      <ImageCropper
+        isOpen={showLogoCropper}
+        onClose={handleCloseLogoCropper}
+        imageFile={tempLogoFile}
+        imageSrc={tempLogoFile ? undefined : logoPreview || undefined}
+        onCropComplete={handleLogoCropComplete}
+        aspectRatio={1}
+        title="Crop Logo"
+      />
+      
+      <ImageCropper
+        isOpen={showBannerCropper}
+        onClose={handleCloseBannerCropper}
+        imageFile={tempBannerFile}
+        imageSrc={tempBannerFile ? undefined : bannerPreview || undefined}
+        onCropComplete={handleBannerCropComplete}
+        aspectRatio={2}
+        title="Crop Banner"
+      />
     </div>
   )
 }

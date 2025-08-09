@@ -5,30 +5,10 @@ const path = require('path');
 const fs = require('fs');
 const Institute = require('../models/Institute');
 const Review = require('../models/Review');
-const ensureAuthenticated = (req, res, next) => {
-  console.log('ensureAuthenticated middleware called');
-  console.log('req.isAuthenticated():', req.isAuthenticated());
-  console.log('req.user:', req.user);
-  if (req.isAuthenticated()) return next();
-  console.log('Authentication failed, sending 401');
-  res.status(401).json({ error: 'Not authenticated' });
-};
+const { ensureAuthenticated } = require('../middleware/auth');
+const { upload, cloudinary, validateCloudinaryConfig } = require('../middleware/cloudinary');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadsDir = path.join(__dirname, '..', 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    cb(null, uploadsDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
+// File filter for image uploads
 const fileFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png|gif|webp/;
   const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
@@ -41,8 +21,9 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-const upload = multer({
-  storage: storage,
+// Configure upload with cloudinary and file filter
+const uploadWithFilter = multer({
+  storage: upload.storage,
   limits: {
     fileSize: 5 * 1024 * 1024 // 5MB limit
   },
@@ -55,7 +36,7 @@ router.post('/create', (req, res, next) => {
   console.log('User authenticated:', req.isAuthenticated());
   console.log('User:', req.user);
   next();
-}, ensureAuthenticated, upload.fields([
+}, ensureAuthenticated, uploadWithFilter.fields([
   { name: 'logo', maxCount: 1 },
   { name: 'banner', maxCount: 1 },
   { name: 'gallery', maxCount: 10 },
@@ -143,15 +124,15 @@ router.post('/create', (req, res, next) => {
     let galleryPaths = [];
 
     if (req.files.logo) {
-      logoPath = `/uploads/${req.files.logo[0].filename}`;
+      logoPath = req.files.logo[0].path; // Cloudinary URL
     }
 
     if (req.files.banner) {
-      bannerPath = `/uploads/${req.files.banner[0].filename}`;
+      bannerPath = req.files.banner[0].path; // Cloudinary URL
     }
 
     if (req.files.gallery) {
-      galleryPaths = req.files.gallery.map(file => `/uploads/${file.filename}`);
+      galleryPaths = req.files.gallery.map(file => file.path); // Cloudinary URLs
     }
 
     // Process faculty images
@@ -237,6 +218,17 @@ router.get('/all', async (req, res) => {
   }
 });
 
+// Get institutes owned by current user
+router.get('/my-institutes', ensureAuthenticated, async (req, res) => {
+  try {
+    const institutes = await Institute.find({ owner: req.user._id }).sort({ createdAt: -1 });
+    res.json({ institutes });
+  } catch (error) {
+    console.error('Error fetching user institutes:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get single institute by ID
 router.get('/:id', async (req, res) => {
   try {
@@ -248,6 +240,254 @@ router.get('/:id', async (req, res) => {
   } catch (error) {
     console.error('Error fetching institute:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Get gallery images
+router.get('/:id/gallery', async (req, res) => {
+  try {
+    console.log('GET /gallery route hit for institute ID:', req.params.id);
+    
+    // Validate ObjectId format
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      console.log('Invalid ObjectId format:', req.params.id);
+      return res.status(400).json({ error: 'Invalid institute ID format' });
+    }
+    
+    const institute = await Institute.findById(req.params.id);
+    console.log('Institute found:', institute ? institute.name : 'null');
+    
+    if (!institute) {
+      return res.status(404).json({ error: 'Institute not found' });
+    }
+    
+    return res.status(200).json({ gallery: institute.gallery || [] });
+  } catch (error) {
+    console.error('Error fetching gallery:', error);
+    console.error('Error details:', error.message);
+    return res.status(500).json({ error: 'Failed to fetch gallery', details: error.message });
+  }
+});
+
+
+
+// Add gallery images (owner only) - supports multiple files
+const galleryUpload = upload.array('gallery', 10);
+router.post('/:id/gallery', ensureAuthenticated, (req, res, next) => {
+  galleryUpload(req, res, function (err) {
+    if (err) {
+      console.error('Error during image upload middleware:', err);
+      return res.status(500).json({ error: 'Image upload failed', details: err.message });
+    }
+    next();
+  });
+}, async (req, res) => {
+  try {
+    console.log('POST /gallery route hit for institute ID:', req.params.id);
+    console.log('Request files:', req.files);
+    console.log('Request body:', req.body);
+    console.log('Authenticated user:', req.user);
+
+    // Validate ObjectId format
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      console.log('Invalid ObjectId format:', req.params.id);
+      return res.status(400).json({ error: 'Invalid institute ID format' });
+    }
+
+    const institute = await Institute.findById(req.params.id);
+    console.log('Institute found:', institute ? institute.name : 'null');
+    
+    if (!institute) {
+      return res.status(404).json({ error: 'Institute not found' });
+    }
+    
+    if (!req.user || String(institute.owner) !== String(req.user._id)) {
+      console.log('Authorization failed. Institute owner:', institute.owner, 'User ID:', req.user ? req.user._id : 'null');
+      return res.status(403).json({ error: 'You are not authorized to modify this institute' });
+    }
+
+    console.log('Files received:', req.files);
+    const newImages = (req.files || []).map(f => {
+      console.log('Processing file:', f.originalname, 'Path:', f.path);
+      
+      // Check if using Cloudinary or local storage
+      let imagePath = f.path;
+      if (imagePath && !imagePath.startsWith('http')) {
+        const filename = require('path').basename(imagePath);
+        imagePath = `/uploads/${filename}`;
+        console.log('Using local storage URL:', imagePath);
+      } else {
+        console.log('Using Cloudinary URL:', imagePath);
+      }
+      
+      return imagePath;
+    });
+    
+    if (!newImages.length) {
+      console.log('No images provided in request');
+      return res.status(400).json({ error: 'No images provided' });
+    }
+    
+    console.log('Adding images to gallery:', newImages);
+    institute.gallery = [...(institute.gallery || []), ...newImages];
+    await institute.save();
+    
+    console.log('Gallery updated successfully');
+    return res.status(200).json({ success: true, images: newImages, gallery: institute.gallery });
+  } catch (error) {
+    console.error('Error adding gallery images:', error);
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    return res.status(500).json({ error: 'Failed to add images to gallery', details: error.message });
+  }
+});
+
+// Remove gallery image by URL (owner only)
+router.delete('/:id/gallery', ensureAuthenticated, async (req, res) => {
+  try {
+    const { imageUrl } = req.body;
+    console.log('DELETE /gallery route hit for institute ID:', req.params.id);
+    console.log('Image URL to delete:', imageUrl);
+    
+    const institute = await Institute.findById(req.params.id);
+    if (!institute) {
+      return res.status(404).json({ error: 'Institute not found' });
+    }
+    if (!req.user || String(institute.owner) !== String(req.user._id)) {
+      return res.status(403).json({ error: 'You are not authorized to modify this institute' });
+    }
+    if (!imageUrl) {
+      return res.status(400).json({ error: 'imageUrl is required' });
+    }
+
+    // Delete from Cloudinary if it's a Cloudinary URL
+    if (imageUrl.includes('cloudinary.com')) {
+      try {
+        // Extract public_id from Cloudinary URL
+        const urlParts = imageUrl.split('/');
+        const filename = urlParts[urlParts.length - 1];
+        const publicId = filename.split('.')[0];
+        
+        console.log('Deleting from Cloudinary, public_id:', publicId);
+        await cloudinary.uploader.destroy(`pak-nexus/gallery/${publicId}`);
+        console.log('Successfully deleted from Cloudinary');
+      } catch (cloudinaryError) {
+        console.error('Error deleting from Cloudinary:', cloudinaryError);
+        // Continue anyway - remove from database even if Cloudinary deletion fails
+      }
+    }
+    
+    // Remove from database
+    institute.gallery = (institute.gallery || []).filter(img => img !== imageUrl);
+    await institute.save();
+    
+    console.log('Image removed from gallery successfully');
+    return res.status(200).json({ success: true, gallery: institute.gallery });
+  } catch (error) {
+    console.error('Error removing gallery image:', error);
+    return res.status(500).json({ error: 'Failed to remove image from gallery' });
+  }
+});
+
+// Get faculty members
+router.get('/:id/faculty', async (req, res) => {
+  try {
+    console.log('GET /faculty route hit for institute ID:', req.params.id);
+    
+    // Validate ObjectId format
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      console.log('Invalid ObjectId format:', req.params.id);
+      return res.status(400).json({ error: 'Invalid institute ID format' });
+    }
+    
+    const institute = await Institute.findById(req.params.id);
+    console.log('Institute found:', institute ? institute.name : 'null');
+    
+    if (!institute) {
+      return res.status(404).json({ error: 'Institute not found' });
+    }
+    
+    return res.status(200).json({ faculty: institute.faculty || [] });
+  } catch (error) {
+    console.error('Error fetching faculty:', error);
+    console.error('Error details:', error.message);
+    return res.status(500).json({ error: 'Failed to fetch faculty', details: error.message });
+  }
+});
+
+// Add faculty (owner only). Accepts multipart with optional image file named 'image'
+router.post('/:id/faculty', ensureAuthenticated, upload.single('image'), async (req, res) => {
+  try {
+    console.log('POST /faculty route hit for institute ID:', req.params.id);
+    console.log('Request body:', req.body);
+    console.log('Request file:', req.file);
+    console.log('Authenticated user:', req.user);
+
+    // Validate ObjectId format
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      console.log('Invalid ObjectId format:', req.params.id);
+      return res.status(400).json({ error: 'Invalid institute ID format' });
+    }
+
+    const institute = await Institute.findById(req.params.id);
+    console.log('Institute found:', institute ? institute.name : 'null');
+    
+    if (!institute) {
+      return res.status(404).json({ error: 'Institute not found' });
+    }
+    
+    if (!req.user || String(institute.owner) !== String(req.user._id)) {
+      console.log('Authorization failed. Institute owner:', institute.owner, 'User ID:', req.user ? req.user._id : 'null');
+      return res.status(403).json({ error: 'You are not authorized to modify this institute' });
+    }
+
+    const { name, position, qualification, experience } = req.body;
+    console.log('Faculty data:', { name, position, qualification, experience });
+    
+    if (!name || !position || !qualification || !experience) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const image = req.file ? req.file.path : '';
+    const newFaculty = { name, position, qualification, experience, image };
+    
+    console.log('Adding new faculty:', newFaculty);
+    institute.faculty = [...(institute.faculty || []), newFaculty];
+    await institute.save();
+
+    const created = institute.faculty[institute.faculty.length - 1];
+    console.log('Faculty added successfully:', created);
+    return res.status(201).json({ success: true, faculty: created, facultyList: institute.faculty });
+  } catch (error) {
+    console.error('Error adding faculty:', error);
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    return res.status(500).json({ error: 'Failed to add faculty member', details: error.message });
+  }
+});
+
+// Remove faculty by subdocument id (owner only)
+router.delete('/:id/faculty/:facultyId', ensureAuthenticated, async (req, res) => {
+  try {
+    const institute = await Institute.findById(req.params.id);
+    if (!institute) {
+      return res.status(404).json({ error: 'Institute not found' });
+    }
+    if (!req.user || String(institute.owner) !== String(req.user._id)) {
+      return res.status(403).json({ error: 'You are not authorized to modify this institute' });
+    }
+
+    const { facultyId } = req.params;
+    const before = (institute.faculty || []).length;
+    institute.faculty = (institute.faculty || []).filter(f => String(f._id) !== String(facultyId));
+    if (institute.faculty.length === before) {
+      return res.status(404).json({ error: 'Faculty member not found' });
+    }
+    await institute.save();
+    return res.status(200).json({ success: true, facultyList: institute.faculty });
+  } catch (error) {
+    console.error('Error removing faculty:', error);
+    return res.status(500).json({ error: 'Failed to remove faculty member' });
   }
 });
 
@@ -280,13 +520,13 @@ router.put('/:id', ensureAuthenticated, upload.fields([
     }
     // Handle file uploads and update data
     if (req.files && req.files.logo) {
-      institute.logo = `/uploads/${req.files.logo[0].filename}`;
+      institute.logo = req.files.logo[0].path; // Cloudinary URL
     }
     if (req.files && req.files.banner) {
-      institute.banner = `/uploads/${req.files.banner[0].filename}`;
+      institute.banner = req.files.banner[0].path; // Cloudinary URL
     }
     if (req.files && req.files.gallery) {
-      institute.gallery = req.files.gallery.map(file => `/uploads/${file.filename}`);
+      institute.gallery = req.files.gallery.map(file => file.path); // Cloudinary URLs
     }
     // Update other fields
     console.log('Updating institute with body:', req.body)
@@ -376,7 +616,7 @@ router.delete('/:id', ensureAuthenticated, async (req, res) => {
 router.get('/:id/reviews', async (req, res) => {
   try {
     const reviews = await Review.find({ institute: req.params.id })
-      .populate('reviewer', 'username email')
+      .populate('reviewer', 'username fullName email profileImage city')
       .sort({ createdAt: -1 });
     
     res.json({ reviews });
@@ -429,7 +669,7 @@ router.post('/:id/reviews', ensureAuthenticated, async (req, res) => {
     }
     
     // Populate reviewer info for response
-    await review.populate('reviewer', 'username email');
+    await review.populate('reviewer', 'username fullName email profileImage city');
     
     res.status(201).json({
       success: true,
@@ -470,7 +710,7 @@ router.put('/:id/reviews/:reviewId', ensureAuthenticated, async (req, res) => {
       await institute.save();
     }
     
-    await review.populate('reviewer', 'username email');
+    await review.populate('reviewer', 'username fullName email profileImage city');
     
     res.json({
       success: true,
@@ -518,6 +758,35 @@ router.delete('/:id/reviews/:reviewId', ensureAuthenticated, async (req, res) =>
   } catch (error) {
     console.error('Error deleting review:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Test endpoint to debug gallery upload issues
+router.post('/:id/gallery-test', ensureAuthenticated, async (req, res) => {
+  try {
+    console.log('POST /gallery-test route hit');
+    console.log('Authenticated user:', req.user);
+    return res.status(200).json({ success: true, message: 'Authentication working' });
+  } catch (error) {
+    console.error('Error in gallery-test:', error);
+    return res.status(500).json({ error: 'Test failed', details: error.message });
+  }
+});
+
+// Test endpoint with upload middleware
+router.post('/:id/gallery-upload-test', ensureAuthenticated, upload.array('gallery', 10), async (req, res) => {
+  try {
+    console.log('POST /gallery-upload-test route hit');
+    console.log('Authenticated user:', req.user);
+    console.log('Files:', req.files);
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Upload middleware working',
+      filesCount: req.files ? req.files.length : 0
+    });
+  } catch (error) {
+    console.error('Error in gallery-upload-test:', error);
+    return res.status(500).json({ error: 'Upload test failed', details: error.message });
   }
 });
 

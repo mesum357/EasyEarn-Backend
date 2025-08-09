@@ -12,6 +12,7 @@ import { API_BASE_URL } from '@/lib/config'
 import { useToast } from '@/hooks/use-toast'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { getProfileImageUrl } from '@/lib/utils'
 
 export default function PostDetail() {
   const { id } = useParams()
@@ -37,6 +38,7 @@ export default function PostDetail() {
   const [deleteCommentId, setDeleteCommentId] = useState(null)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [commentDropdownOpen, setCommentDropdownOpen] = useState(null)
+  const [sharing, setSharing] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -319,6 +321,29 @@ export default function PostDetail() {
     })
   }
 
+  const handleShare = async () => {
+    setSharing(true)
+    
+    try {
+      const postUrl = `${window.location.origin}/feed/post/${id}`
+      await navigator.clipboard.writeText(postUrl)
+      
+      toast({
+        title: "Link copied!",
+        description: "Post link has been copied to your clipboard.",
+      })
+    } catch (error) {
+      console.error('Failed to copy link:', error)
+      toast({
+        title: "Error",
+        description: "Failed to copy link. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setSharing(false)
+    }
+  }
+
   // Helper to render comments and their replies recursively
   function renderComments(comments, parentId = null, level = 0) {
     return comments
@@ -339,7 +364,7 @@ export default function PostDetail() {
             className={`flex items-start gap-3${level > 0 ? ' ml-8' : ''}`}
           >
             <Avatar>
-              <AvatarImage src={comment.user.profileImage} />
+              <AvatarImage src={getProfileImageUrl(comment.user.profileImage)} />
               <AvatarFallback>{comment.user.username[0]}</AvatarFallback>
             </Avatar>
             <div className="flex-1">
@@ -365,7 +390,13 @@ export default function PostDetail() {
                   </div>
                 </div>
               ) : (
-                  <p className="text-foreground">{comment.content}</p>
+                  <div 
+                    className="text-foreground"
+                    dangerouslySetInnerHTML={{ 
+                      __html: comment.content || '' 
+                    }}
+                    style={{ direction: 'ltr' }}
+                  />
                 )}
               </div>
               <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
@@ -419,7 +450,7 @@ export default function PostDetail() {
                       className="flex items-start gap-3 ml-8"
                     >
                       <Avatar className="h-6 w-6">
-                        <AvatarImage src={reply.user.profileImage} />
+                        <AvatarImage src={getProfileImageUrl(reply.user.profileImage)} />
                         <AvatarFallback>{reply.user.username[0]}</AvatarFallback>
                       </Avatar>
                       <div className="flex-1">
@@ -445,7 +476,13 @@ export default function PostDetail() {
                               </div>
                             </div>
                           ) : (
-                            <p className="text-foreground text-xs">{reply.content}</p>
+                            <div 
+                              className="text-foreground text-xs"
+                              dangerouslySetInnerHTML={{ 
+                                __html: reply.content || '' 
+                              }}
+                              style={{ direction: 'ltr' }}
+                            />
                           )}
                           <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
                             <Button variant="ghost" size="sm" onClick={() => handleLikeComment(reply._id)} disabled={likeLoading[reply._id]}>
@@ -548,12 +585,17 @@ export default function PostDetail() {
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <Avatar className="h-12 w-12">
-                      <AvatarImage src={post.user?.profileImage} />
+                      <AvatarImage src={getProfileImageUrl(post.user?.profileImage)} />
                       <AvatarFallback>{post.user?.username?.[0] || 'U'}</AvatarFallback>
                     </Avatar>
                     <div>
                       <div className="flex items-center gap-2">
-                        <p className="font-semibold text-foreground text-lg">{post.user?.username || 'Unknown User'}</p>
+                        <p className="font-semibold text-foreground text-lg">
+                          {post.user?.fullName || (post.user?.username?.includes('@') ? post.user.username.split('@')[0] : post.user?.username) || 'Unknown User'}
+                        </p>
+                        {post.user?.fullName && (
+                          <p className="text-sm text-muted-foreground">@{post.user.username}</p>
+                        )}
                         {post.user?.verified && (
                           <div className="w-4 h-4 bg-primary rounded-full flex items-center justify-center">
                             <div className="w-2 h-2 bg-white rounded-full" />
@@ -578,22 +620,26 @@ export default function PostDetail() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   ) : (
-                    <Button variant="ghost" size="sm">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
+                  <Button variant="ghost" size="sm">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
                   )}
                 </div>
 
                 {/* Post Content */}
                 <div className="mb-6">
-                  <p className="text-foreground leading-relaxed text-lg mb-4">
-                    {post.content}
-                  </p>
+                  <div 
+                    className="text-foreground leading-relaxed text-lg mb-4"
+                    dangerouslySetInnerHTML={{ 
+                      __html: post.content || '' 
+                    }}
+                    style={{ direction: 'ltr' }}
+                  />
                   
                   {post.image && (
                     <div className="rounded-lg overflow-hidden">
                       <img
-                        src={post.image.startsWith('/uploads/') ? `${API_BASE_URL}${post.image}` : post.image}
+                        src={post.image}
                         alt="Post image"
                         className="w-full object-cover"
                       />
@@ -621,9 +667,14 @@ export default function PostDetail() {
                       <MessageCircle className="h-5 w-5" />
                       Comment
                     </Button>
-                    <Button variant="ghost" className="gap-2 text-muted-foreground hover:text-primary">
+                    <Button 
+                      variant="ghost" 
+                      className="gap-2 text-muted-foreground hover:text-primary"
+                      onClick={handleShare}
+                      disabled={sharing}
+                    >
                       <Share className="h-5 w-5" />
-                      Share
+                      {sharing ? 'Copying...' : 'Share'}
                     </Button>
                   </div>
                 </div>
@@ -644,7 +695,7 @@ export default function PostDetail() {
                 {/* Add Comment */}
                 <div className="flex items-start gap-3 mb-6 pb-6 border-b border-border">
                   <Avatar>
-                    <AvatarImage src={currentUser?.profileImage} />
+                    <AvatarImage src={getProfileImageUrl(currentUser?.profileImage)} />
                     <AvatarFallback>{currentUser?.username?.[0] || 'You'}</AvatarFallback>
                   </Avatar>
                   <div className="flex-1 flex gap-2">
