@@ -950,7 +950,7 @@ app.post("/register", async function(req, res) {
                 success: true, 
                 message: DISABLE_EMAILS 
                     ? 'Registration successful! Your account has been automatically verified for testing. You can now log in.'
-                    : 'Registration successful! Please check your email to verify your account. Referral bonus will be given after email verification.',
+                    : 'Registration successful! Please check your email to verify your account.',
                 referralCode: userReferralCode,
                 autoVerified: DISABLE_EMAILS
             });
