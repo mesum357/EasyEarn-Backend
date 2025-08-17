@@ -19,9 +19,20 @@ const facultySchema = new mongoose.Schema({
 });
 
 const instituteSchema = new mongoose.Schema({
+  // Domain indicates whether this record represents an education institute or a healthcare hospital
+  domain: { type: String, enum: ['education', 'healthcare'], default: 'education' },
   // Basic Information
   name: { type: String, required: true },
-  type: { type: String, enum: ['University', 'College', 'School', 'Academy'], required: true },
+  type: { 
+    type: String, 
+    enum: [
+      // Education types
+      'University', 'College', 'School', 'Academy',
+      // Healthcare types
+      'Hospital', 'General', 'Specialized', 'Clinic', 'Medical Center'
+    ], 
+    required: true 
+  },
   location: { type: String, required: true },
   city: { type: String, required: true },
   province: { type: String, required: true },
@@ -56,6 +67,10 @@ const instituteSchema = new mongoose.Schema({
   // Status and Verification
   admissionStatus: { type: String, enum: ['Open', 'Closed', 'Coming Soon'], default: 'Open' },
   verified: { type: Boolean, default: false },
+  approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  approvalNotes: { type: String }, // Admin notes for approval/rejection
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Admin who approved/rejected
+  approvedAt: { type: Date }, // When it was approved/rejected
   
   // Ratings and Reviews
   rating: { type: Number, default: 4.5 },

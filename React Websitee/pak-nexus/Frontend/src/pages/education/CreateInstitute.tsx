@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Upload, Plus, X, Crop } from 'lucide-react'
+import { ArrowLeft, Upload, Plus, X, Crop, ExternalLink, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -16,12 +16,15 @@ import { API_BASE_URL } from '@/lib/config'
 import { useToast } from '@/hooks/use-toast'
 import { ImageCropper } from '@/components/ui/image-cropper'
 import { RichTextEditor } from '@/components/ui/rich-text-editor'
+import PaymentSection from '@/components/PaymentSection'
+import TermsAndPolicies from '@/components/ui/TermsAndPolicies'
 
 const steps = [
   "Basic Information",
   "Contact Details", 
   "Media & Branding",
   "Courses & Programs",
+  "Payment Section",
   "Review & Submit"
 ]
 
@@ -45,6 +48,9 @@ export default function CreateInstitute() {
   const [bannerPreview, setBannerPreview] = useState<string | null>(null)
   const { toast } = useToast();
   const [courseError, setCourseError] = useState<string | null>(null);
+  const [paymentCompleted, setPaymentCompleted] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   
   // Image cropper states
   const [showLogoCropper, setShowLogoCropper] = useState(false)
@@ -100,12 +106,36 @@ export default function CreateInstitute() {
     setCourses(courses.filter((_, i) => i !== index))
   }
 
+  const handlePaymentComplete = (paymentData: any) => {
+    setPaymentCompleted(true);
+    console.log('Payment completed:', paymentData);
+    toast({ 
+      title: 'Payment Submitted', 
+      description: 'Payment request submitted successfully. You can now proceed to review and submit.' 
+    });
+  }
+
+  const handleAcceptTerms = () => {
+    setAcceptTerms(true);
+  };
+
   const nextStep = () => {
     // If on the courses step and pending course name is not empty, add it
     if (currentStep === 3 && newCourseName.trim()) {
       addCourse();
       return; // Wait for the next click to actually go to the next step
     }
+    
+    // If trying to go to review step (step 5) without completing payment
+    if (currentStep === 4 && !paymentCompleted) {
+      toast({ 
+        title: 'Payment Required', 
+        description: 'Please complete the payment section before proceeding to review.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1)
     }
@@ -183,7 +213,7 @@ export default function CreateInstitute() {
   // Submit handler
   const handleSubmit = async () => {
     // If on the courses step and newCourse is not empty, add it and block submit
-    if (currentStep === 3 && newCourse.trim()) {
+    if (currentStep === 3 && newCourseName.trim()) {
       addCourse();
       setCourseError('Please click Add to add your course before submitting.');
       return;
@@ -273,7 +303,7 @@ export default function CreateInstitute() {
         console.log('Success response:', responseData);
         toast({ 
           title: 'Success!', 
-          description: id ? 'Institute updated successfully!' : 'Institute created successfully!', 
+          description: id ? 'Institute updated successfully!' : 'Institute created successfully and is pending admin approval!', 
           variant: 'default' 
         });
         navigate('/education');
@@ -381,13 +411,288 @@ export default function CreateInstitute() {
                     <SelectValue placeholder="Select city" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="karachi">Karachi</SelectItem>
+                    {/* Punjab Cities */}
                     <SelectItem value="lahore">Lahore</SelectItem>
-                    <SelectItem value="islamabad">Islamabad</SelectItem>
                     <SelectItem value="faisalabad">Faisalabad</SelectItem>
                     <SelectItem value="multan">Multan</SelectItem>
+                    <SelectItem value="rawalpindi">Rawalpindi</SelectItem>
+                    <SelectItem value="gujranwala">Gujranwala</SelectItem>
+                    <SelectItem value="sialkot">Sialkot</SelectItem>
+                    <SelectItem value="bahawalpur">Bahawalpur</SelectItem>
+                    <SelectItem value="sargodha">Sargodha</SelectItem>
+                    <SelectItem value="jhelum">Jhelum</SelectItem>
+                    <SelectItem value="gujrat">Gujrat</SelectItem>
+                    <SelectItem value="sheikhupura">Sheikhupura</SelectItem>
+                    <SelectItem value="jhang">Jhang</SelectItem>
+                    <SelectItem value="sahiwal">Sahiwal</SelectItem>
+                    <SelectItem value="okara">Okara</SelectItem>
+                    <SelectItem value="kasur">Kasur</SelectItem>
+                    <SelectItem value="pakpattan">Pakpattan</SelectItem>
+                    <SelectItem value="attock">Attock</SelectItem>
+                    <SelectItem value="chakwal">Chakwal</SelectItem>
+                    <SelectItem value="mianwali">Mianwali</SelectItem>
+                    <SelectItem value="bhakkar">Bhakkar</SelectItem>
+                    <SelectItem value="khushab">Khushab</SelectItem>
+                    <SelectItem value="layyah">Layyah</SelectItem>
+                    <SelectItem value="vehari">Vehari</SelectItem>
+                    <SelectItem value="khanewal">Khanewal</SelectItem>
+                    <SelectItem value="lodhran">Lodhran</SelectItem>
+                    <SelectItem value="rajanpur">Rajanpur</SelectItem>
+                    <SelectItem value="dera-ghazi-khan">Dera Ghazi Khan</SelectItem>
+                    <SelectItem value="muzaffargarh">Muzaffargarh</SelectItem>
+                    <SelectItem value="bahawalnagar">Bahawalnagar</SelectItem>
+                    <SelectItem value="chiniot">Chiniot</SelectItem>
+                    <SelectItem value="toba-tek-singh">Toba Tek Singh</SelectItem>
+                    <SelectItem value="nankana-sahib">Nankana Sahib</SelectItem>
+                    <SelectItem value="hafizabad">Hafizabad</SelectItem>
+                    <SelectItem value="mandi-bahauddin">Mandi Bahauddin</SelectItem>
+                    <SelectItem value="narowal">Narowal</SelectItem>
+                    <SelectItem value="chak-jhumra">Chak Jhumra</SelectItem>
+                    <SelectItem value="gojra">Gojra</SelectItem>
+                    <SelectItem value="tandlianwala">Tandlianwala</SelectItem>
+                    <SelectItem value="daska">Daska</SelectItem>
+                    <SelectItem value="pasrur">Pasrur</SelectItem>
+                    <SelectItem value="wazirabad">Wazirabad</SelectItem>
+                    <SelectItem value="kamoke">Kamoke</SelectItem>
+                    <SelectItem value="muridke">Muridke</SelectItem>
+                    <SelectItem value="chuhar-jamali">Chuhar Jamali</SelectItem>
+                    <SelectItem value="kot-addu">Kot Addu</SelectItem>
+                    <SelectItem value="taunsa">Taunsa</SelectItem>
+                    <SelectItem value="dera-nawab-sahib">Dera Nawab Sahib</SelectItem>
+                    <SelectItem value="raiwind">Raiwind</SelectItem>
+                    <SelectItem value="shahdara">Shahdara</SelectItem>
+                    <SelectItem value="gulberg">Gulberg</SelectItem>
+                    <SelectItem value="model-town">Model Town</SelectItem>
+                    <SelectItem value="defence">Defence</SelectItem>
+                    <SelectItem value="cantt">Cantt</SelectItem>
+                    <SelectItem value="garden-town">Garden Town</SelectItem>
+                    <SelectItem value="iqbal-town">Iqbal Town</SelectItem>
+                    <SelectItem value="samundri">Samundri</SelectItem>
+                    <SelectItem value="chak-jhumra">Chak Jhumra</SelectItem>
+                    <SelectItem value="gojra">Gojra</SelectItem>
+                    <SelectItem value="tandlianwala">Tandlianwala</SelectItem>
+                    <SelectItem value="daska">Daska</SelectItem>
+                    <SelectItem value="pasrur">Pasrur</SelectItem>
+                    <SelectItem value="wazirabad">Wazirabad</SelectItem>
+                    <SelectItem value="kamoke">Kamoke</SelectItem>
+                    <SelectItem value="muridke">Muridke</SelectItem>
+                    <SelectItem value="chuhar-jamali">Chuhar Jamali</SelectItem>
+                    <SelectItem value="kot-addu">Kot Addu</SelectItem>
+                    <SelectItem value="taunsa">Taunsa</SelectItem>
+                    <SelectItem value="dera-nawab-sahib">Dera Nawab Sahib</SelectItem>
+                    <SelectItem value="raiwind">Raiwind</SelectItem>
+                    <SelectItem value="shahdara">Shahdara</SelectItem>
+                    <SelectItem value="gulberg">Gulberg</SelectItem>
+                    <SelectItem value="model-town">Model Town</SelectItem>
+                    <SelectItem value="defence">Defence</SelectItem>
+                    <SelectItem value="cantt">Cantt</SelectItem>
+                    <SelectItem value="garden-town">Garden Town</SelectItem>
+                    <SelectItem value="iqbal-town">Iqbal Town</SelectItem>
+                    <SelectItem value="samundri">Samundri</SelectItem>
+                    
+                    {/* Sindh Cities */}
+                    <SelectItem value="karachi">Karachi</SelectItem>
+                    <SelectItem value="hyderabad">Hyderabad</SelectItem>
+                    <SelectItem value="sukkur">Sukkur</SelectItem>
+                    <SelectItem value="larkana">Larkana</SelectItem>
+                    <SelectItem value="nawabshah">Nawabshah</SelectItem>
+                    <SelectItem value="mirpur-khas">Mirpur Khas</SelectItem>
+                    <SelectItem value="jacobabad">Jacobabad</SelectItem>
+                    <SelectItem value="shikarpur">Shikarpur</SelectItem>
+                    <SelectItem value="dadu">Dadu</SelectItem>
+                    <SelectItem value="thatta">Thatta</SelectItem>
+                    <SelectItem value="badin">Badin</SelectItem>
+                    <SelectItem value="sanghar">Sanghar</SelectItem>
+                    <SelectItem value="naushahro-firoze">Naushahro Firoze</SelectItem>
+                    <SelectItem value="ghotki">Ghotki</SelectItem>
+                    <SelectItem value="khairpur">Khairpur</SelectItem>
+                    <SelectItem value="umerkot">Umerkot</SelectItem>
+                    <SelectItem value="tando-muhammad-khan">Tando Muhammad Khan</SelectItem>
+                    <SelectItem value="tando-allahyar">Tando Allahyar</SelectItem>
+                    <SelectItem value="matli">Matli</SelectItem>
+                    <SelectItem value="tando-adam">Tando Adam</SelectItem>
+                    <SelectItem value="sehwan">Sehwan</SelectItem>
+                    <SelectItem value="moro">Moro</SelectItem>
+                    <SelectItem value="naushahro-firoze">Naushahro Firoze</SelectItem>
+                    <SelectItem value="sakrand">Sakrand</SelectItem>
+                    <SelectItem value="shahdadpur">Shahdadpur</SelectItem>
+                    <SelectItem value="hala">Hala</SelectItem>
+                    <SelectItem value="matiari">Matiari</SelectItem>
+                    <SelectItem value="tando-jam">Tando Jam</SelectItem>
+                    <SelectItem value="digri">Digri</SelectItem>
+                    <SelectItem value="kotri">Kotri</SelectItem>
+                    <SelectItem value="jamshoro">Jamshoro</SelectItem>
+                    <SelectItem value="sehwani">Sehwani</SelectItem>
+                    <SelectItem value="bhiria">Bhiria</SelectItem>
+                    <SelectItem value="nawabshah">Nawabshah</SelectItem>
+                    <SelectItem value="daulatpur">Daulatpur</SelectItem>
+                    <SelectItem value="kandhkot">Kandhkot</SelectItem>
+                    <SelectItem value="kashmore">Kashmore</SelectItem>
+                    <SelectItem value="shikarpur">Shikarpur</SelectItem>
+                    <SelectItem value="lakhi">Lakhi</SelectItem>
+                    <SelectItem value="garhi-yasin">Garhi Yasin</SelectItem>
+                    <SelectItem value="khanpur">Khanpur</SelectItem>
+                    <SelectItem value="ranipur">Ranipur</SelectItem>
+                    <SelectItem value="shahdadkot">Shahdadkot</SelectItem>
+                    <SelectItem value="moro">Moro</SelectItem>
+                    <SelectItem value="naushahro-firoze">Naushahro Firoze</SelectItem>
+                    <SelectItem value="sakrand">Sakrand</SelectItem>
+                    <SelectItem value="shahdadpur">Shahdadpur</SelectItem>
+                    <SelectItem value="hala">Hala</SelectItem>
+                    <SelectItem value="matiari">Matiari</SelectItem>
+                    <SelectItem value="tando-jam">Tando Jam</SelectItem>
+                    <SelectItem value="digri">Digri</SelectItem>
+                    <SelectItem value="kotri">Kotri</SelectItem>
+                    <SelectItem value="jamshoro">Jamshoro</SelectItem>
+                    <SelectItem value="sehwani">Sehwani</SelectItem>
+                    <SelectItem value="bhiria">Bhiria</SelectItem>
+                    <SelectItem value="nawabshah">Nawabshah</SelectItem>
+                    <SelectItem value="daulatpur">Daulatpur</SelectItem>
+                    <SelectItem value="kandhkot">Kandhkot</SelectItem>
+                    <SelectItem value="kashmore">Kashmore</SelectItem>
+                    <SelectItem value="shikarpur">Shikarpur</SelectItem>
+                    <SelectItem value="lakhi">Lakhi</SelectItem>
+                    <SelectItem value="garhi-yasin">Garhi Yasin</SelectItem>
+                    <SelectItem value="khanpur">Khanpur</SelectItem>
+                    <SelectItem value="ranipur">Ranipur</SelectItem>
+                    <SelectItem value="shahdadkot">Shahdadkot</SelectItem>
+                    
+                    {/* Khyber Pakhtunkhwa Cities */}
                     <SelectItem value="peshawar">Peshawar</SelectItem>
+                    <SelectItem value="mardan">Mardan</SelectItem>
+                    <SelectItem value="abbottabad">Abbottabad</SelectItem>
+                    <SelectItem value="swat">Swat</SelectItem>
+                    <SelectItem value="mansehra">Mansehra</SelectItem>
+                    <SelectItem value="swabi">Swabi</SelectItem>
+                    <SelectItem value="charsadda">Charsadda</SelectItem>
+                    <SelectItem value="nowshera">Nowshera</SelectItem>
+                    <SelectItem value="kohat">Kohat</SelectItem>
+                    <SelectItem value="bannu">Bannu</SelectItem>
+                    <SelectItem value="dera-ismail-khan">Dera Ismail Khan</SelectItem>
+                    <SelectItem value="lakki-marwat">Lakki Marwat</SelectItem>
+                    <SelectItem value="tank">Tank</SelectItem>
+                    <SelectItem value="hangu">Hangu</SelectItem>
+                    <SelectItem value="karak">Karak</SelectItem>
+                    <SelectItem value="buner">Buner</SelectItem>
+                    <SelectItem value="shangla">Shangla</SelectItem>
+                    <SelectItem value="upper-dir">Upper Dir</SelectItem>
+                    <SelectItem value="lower-dir">Lower Dir</SelectItem>
+                    <SelectItem value="malakand">Malakand</SelectItem>
+                    <SelectItem value="chitral">Chitral</SelectItem>
+                    <SelectItem value="kohistan">Kohistan</SelectItem>
+                    <SelectItem value="tor-ghar">Tor Ghar</SelectItem>
+                    <SelectItem value="battagram">Battagram</SelectItem>
+                    <SelectItem value="shangla">Shangla</SelectItem>
+                    <SelectItem value="upper-dir">Upper Dir</SelectItem>
+                    <SelectItem value="lower-dir">Lower Dir</SelectItem>
+                    <SelectItem value="malakand">Malakand</SelectItem>
+                    <SelectItem value="chitral">Chitral</SelectItem>
+                    <SelectItem value="kohistan">Kohistan</SelectItem>
+                    <SelectItem value="tor-ghar">Tor Ghar</SelectItem>
+                    <SelectItem value="battagram">Battagram</SelectItem>
+                    
+                    {/* Balochistan Cities */}
                     <SelectItem value="quetta">Quetta</SelectItem>
+                    <SelectItem value="turbat">Turbat</SelectItem>
+                    <SelectItem value="khuzdar">Khuzdar</SelectItem>
+                    <SelectItem value="kalat">Kalat</SelectItem>
+                    <SelectItem value="mastung">Mastung</SelectItem>
+                    <SelectItem value="sibi">Sibi</SelectItem>
+                    <SelectItem value="zhob">Zhob</SelectItem>
+                    <SelectItem value="loralai">Loralai</SelectItem>
+                    <SelectItem value="barkhan">Barkhan</SelectItem>
+                    <SelectItem value="musakhel">Musakhel</SelectItem>
+                    <SelectItem value="killa-saifullah">Killa Saifullah</SelectItem>
+                    <SelectItem value="pishin">Pishin</SelectItem>
+                    <SelectItem value="killa-abdullah">Killa Abdullah</SelectItem>
+                    <SelectItem value="chagai">Chagai</SelectItem>
+                    <SelectItem value="nushki">Nushki</SelectItem>
+                    <SelectItem value="washuk">Washuk</SelectItem>
+                    <SelectItem value="awaran">Awaran</SelectItem>
+                    <SelectItem value="panjgur">Panjgur</SelectItem>
+                    <SelectItem value="gwadar">Gwadar</SelectItem>
+                    <SelectItem value="lasbela">Lasbela</SelectItem>
+                    <SelectItem value="jhal-magsi">Jhal Magsi</SelectItem>
+                    <SelectItem value="kachhi">Kachhi</SelectItem>
+                    <SelectItem value="jaffarabad">Jaffarabad</SelectItem>
+                    <SelectItem value="nasirabad">Nasirabad</SelectItem>
+                    <SelectItem value="kohlu">Kohlu</SelectItem>
+                    <SelectItem value="dera-bugti">Dera Bugti</SelectItem>
+                    <SelectItem value="barkhan">Barkhan</SelectItem>
+                    <SelectItem value="musakhel">Musakhel</SelectItem>
+                    <SelectItem value="killa-saifullah">Killa Saifullah</SelectItem>
+                    <SelectItem value="pishin">Pishin</SelectItem>
+                    <SelectItem value="killa-abdullah">Killa Abdullah</SelectItem>
+                    <SelectItem value="chagai">Chagai</SelectItem>
+                    <SelectItem value="nushki">Nushki</SelectItem>
+                    <SelectItem value="washuk">Washuk</SelectItem>
+                    <SelectItem value="awaran">Awaran</SelectItem>
+                    <SelectItem value="panjgur">Panjgur</SelectItem>
+                    <SelectItem value="gwadar">Gwadar</SelectItem>
+                    <SelectItem value="lasbela">Lasbela</SelectItem>
+                    <SelectItem value="jhal-magsi">Jhal Magsi</SelectItem>
+                    <SelectItem value="kachhi">Kachhi</SelectItem>
+                    <SelectItem value="jaffarabad">Jaffarabad</SelectItem>
+                    <SelectItem value="nasirabad">Nasirabad</SelectItem>
+                    <SelectItem value="kohlu">Kohlu</SelectItem>
+                    <SelectItem value="dera-bugti">Dera Bugti</SelectItem>
+                    
+                    {/* Islamabad Capital Territory */}
+                    <SelectItem value="islamabad">Islamabad</SelectItem>
+                    <SelectItem value="rawalpindi">Rawalpindi</SelectItem>
+                    <SelectItem value="murree">Murree</SelectItem>
+                    <SelectItem value="kallar-syedan">Kallar Syedan</SelectItem>
+                    <SelectItem value="gujar-khan">Gujar Khan</SelectItem>
+                    <SelectItem value="kahuta">Kahuta</SelectItem>
+                    <SelectItem value="kallar-syedan">Kallar Syedan</SelectItem>
+                    <SelectItem value="gujar-khan">Gujar Khan</SelectItem>
+                    <SelectItem value="kahuta">Kahuta</SelectItem>
+                    
+                    {/* Gilgit-Baltistan Cities */}
+                    <SelectItem value="gilgit">Gilgit</SelectItem>
+                    <SelectItem value="skardu">Skardu</SelectItem>
+                    <SelectItem value="chilas">Chilas</SelectItem>
+                    <SelectItem value="astore">Astore</SelectItem>
+                    <SelectItem value="ghizer">Ghizer</SelectItem>
+                    <SelectItem value="hunza">Hunza</SelectItem>
+                    <SelectItem value="nagar">Nagar</SelectItem>
+                    <SelectItem value="diamer">Diamer</SelectItem>
+                    <SelectItem value="ghanche">Ghanche</SelectItem>
+                    <SelectItem value="shigar">Shigar</SelectItem>
+                    <SelectItem value="kharmang">Kharmang</SelectItem>
+                    <SelectItem value="roundu">Roundu</SelectItem>
+                    <SelectItem value="shigar">Shigar</SelectItem>
+                    <SelectItem value="kharmang">Kharmang</SelectItem>
+                    <SelectItem value="roundu">Roundu</SelectItem>
+                    
+                    {/* Azad Kashmir Cities */}
+                    <SelectItem value="muzaffarabad">Muzaffarabad</SelectItem>
+                    <SelectItem value="mirpur">Mirpur</SelectItem>
+                    <SelectItem value="rawalakot">Rawalakot</SelectItem>
+                    <SelectItem value="kotli">Kotli</SelectItem>
+                    <SelectItem value="bhimber">Bhimber</SelectItem>
+                    <SelectItem value="bagh">Bagh</SelectItem>
+                    <SelectItem value="haveli">Haveli</SelectItem>
+                    <SelectItem value="neelum">Neelum</SelectItem>
+                    <SelectItem value="poonch">Poonch</SelectItem>
+                    <SelectItem value="sudhnuti">Sudhnuti</SelectItem>
+                    <SelectItem value="hajira">Hajira</SelectItem>
+                    <SelectItem value="forward-kahuta">Forward Kahuta</SelectItem>
+                    <SelectItem value="nakyal">Nakyal</SelectItem>
+                    <SelectItem value="pallandri">Pallandri</SelectItem>
+                    <SelectItem value="thorar">Thorar</SelectItem>
+                    <SelectItem value="beri-pat">Beri Pat</SelectItem>
+                    <SelectItem value="chakswari">Chakswari</SelectItem>
+                    <SelectItem value="dadyal">Dadyal</SelectItem>
+                    <SelectItem value="khuiratta">Khuiratta</SelectItem>
+                    <SelectItem value="samahni">Samahni</SelectItem>
+                    <SelectItem value="sehnsa">Sehnsa</SelectItem>
+                    <SelectItem value="tatrinote">Tatrinote</SelectItem>
+                    <SelectItem value="trarkhel">Trarkhel</SelectItem>
+                    <SelectItem value="uthmankhel">Uthmankhel</SelectItem>
+                    <SelectItem value="watala">Watala</SelectItem>
+                    <SelectItem value="zafarwal">Zafarwal</SelectItem>
+                    <SelectItem value="zafarwal">Zafarwal</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -607,6 +912,15 @@ export default function CreateInstitute() {
 
       case 4:
         return (
+          <PaymentSection 
+            entityType="institute"
+            onPaymentComplete={handlePaymentComplete}
+            isRequired={true}
+          />
+        )
+
+      case 5:
+        return (
           <div className="space-y-6">
             <div className="text-center">
               <h3 className="text-xl font-bold text-foreground mb-2">Review Your Information</h3>
@@ -633,6 +947,59 @@ export default function CreateInstitute() {
                   <div>
                     <h4 className="font-semibold text-foreground">Courses & Programs</h4>
                     <p className="text-muted-foreground">{courses.length} courses added</p>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground">Payment Status</h4>
+                    <p className={`${paymentCompleted ? 'text-green-600' : 'text-red-600'} font-medium`}>
+                      {paymentCompleted ? '✓ Payment Completed' : '✗ Payment Required'}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Terms and Conditions */}
+            <Card className={`transition-all duration-200 ${acceptTerms ? 'border-marketplace-success/30 bg-marketplace-success/5' : ''}`}>
+              <CardContent className="p-6">
+                <div className="space-y-4">
+                  <div className="flex items-start space-x-3">
+                    <input
+                      type="checkbox"
+                      id="terms"
+                      checked={acceptTerms}
+                      onChange={(e) => setAcceptTerms(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <div className="space-y-2">
+                      <Label htmlFor="terms" className="text-sm font-medium cursor-pointer">
+                        I accept the Terms and Conditions <span className="text-destructive">*</span>
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        By creating this institute profile, you agree to our terms of service, 
+                        privacy policy, and educational institution guidelines. You confirm that all information 
+                        provided is accurate and that you have the right to represent this institute.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowTerms(true)}
+                      className="flex items-center gap-2 text-xs"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Read Full Terms & Policies
+                    </Button>
+                    
+                    {acceptTerms && (
+                      <div className="flex items-center gap-2 text-marketplace-success text-sm">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>Terms Accepted</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -749,7 +1116,11 @@ export default function CreateInstitute() {
             </Button>
             
             {currentStep === steps.length - 1 ? (
-              <Button className="bg-primary hover:bg-primary/90 w-full sm:w-auto order-1 sm:order-2" onClick={handleSubmit} disabled={isSubmitting}>
+              <Button 
+                className="bg-primary hover:bg-primary/90 w-full sm:w-auto order-1 sm:order-2" 
+                onClick={handleSubmit} 
+                disabled={isSubmitting || !paymentCompleted || !acceptTerms}
+              >
                 {isSubmitting ? 'Submitting...' : 'Submit Institute'}
               </Button>
             ) : (
@@ -780,6 +1151,14 @@ export default function CreateInstitute() {
         onCropComplete={handleBannerCropComplete}
         aspectRatio={2}
         title="Crop Banner"
+      />
+
+      {/* Terms and Policies Popup */}
+      <TermsAndPolicies
+        isOpen={showTerms}
+        onClose={() => setShowTerms(false)}
+        onAccept={handleAcceptTerms}
+        title="Institute Creation Terms"
       />
     </div>
   )

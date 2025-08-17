@@ -10,6 +10,8 @@ const { upload, cloudinary, validateCloudinaryConfig } = require('../middleware/
 const StudentApplication = require('../models/StudentApplication');
 const InstituteNotification = require('../models/InstituteNotification');
 const InstituteMessage = require('../models/InstituteMessage');
+const InstituteTask = require('../models/InstituteTask');
+const PatientApplication = require('../models/PatientApplication');
 
 // File filter for image uploads
 const fileFilter = (req, file, cb) => {
@@ -178,6 +180,10 @@ router.post('/create', (req, res, next) => {
       rating: 4.5,
       totalReviews: 0
     };
+    // Allow frontend to set domain; default to education
+    if (req.body.domain && ['education','healthcare'].includes(req.body.domain)) {
+      instituteData.domain = req.body.domain;
+    }
 
     console.log('Creating institute with data:', instituteData);
 
@@ -198,7 +204,7 @@ router.post('/create', (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'Institute created successfully',
+      message: 'Institute created successfully and is pending admin approval',
       institute: savedInstitute
     });
 
@@ -214,7 +220,15 @@ router.post('/create', (req, res, next) => {
 // Get all institutes
 router.get('/all', async (req, res) => {
   try {
-    const institutes = await Institute.find();
+    // Filter by optional domain query param: education (default) or healthcare
+    const { domain } = req.query;
+    const query = { approvalStatus: 'approved' }; // Only show approved institutes
+    if (domain === 'education') {
+      query.domain = 'education';
+    } else if (domain === 'healthcare') {
+      query.domain = 'healthcare';
+    }
+    const institutes = await Institute.find(query);
     res.json({ institutes });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -232,6 +246,20 @@ router.get('/my-institutes', ensureAuthenticated, async (req, res) => {
   }
 });
 
+// Get pending institutes for current user
+router.get('/my-pending-institutes', ensureAuthenticated, async (req, res) => {
+  try {
+    const pendingInstitutes = await Institute.find({ 
+      owner: req.user._id, 
+      approvalStatus: 'pending' 
+    }).sort({ createdAt: -1 });
+    res.json({ pendingInstitutes });
+  } catch (error) {
+    console.error('Error fetching pending institutes:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get single institute by ID
 router.get('/:id', async (req, res) => {
   try {
@@ -239,6 +267,15 @@ router.get('/:id', async (req, res) => {
     if (!institute) {
       return res.status(404).json({ error: 'Institute not found' });
     }
+    
+    // Check if user is owner or admin, or if institute is approved
+    const isOwner = req.isAuthenticated() && institute.owner.toString() === req.user._id.toString();
+    const isAdmin = req.isAuthenticated() && req.user.isAdmin;
+    
+    if (!isOwner && !isAdmin && institute.approvalStatus !== 'approved') {
+      return res.status(404).json({ error: 'Institute not found' });
+    }
+    
     res.json({ institute });
   } catch (error) {
     console.error('Error fetching institute:', error);
@@ -857,6 +894,74 @@ router.get('/applications/my', ensureAuthenticated, async (req, res) => {
   }
 });
 
+// Get all applications for an institute (admin only)
+router.get('/:id/applications', ensureAuthenticated, async (req, res) => {
+  try {
+    const instituteId = req.params.id;
+    
+    // Check if user is the owner of the institute
+    const institute = await Institute.findById(instituteId);
+    if (!institute) {
+      return res.status(404).json({ error: 'Institute not found' });
+    }
+    
+    if (String(institute.owner) !== String(req.user._id)) {
+      return res.status(403).json({ error: 'Unauthorized: Only institute owner can view applications' });
+    }
+    
+    const applications = await StudentApplication.find({ institute: instituteId })
+      .populate('user', 'username email profileImage')
+      .sort({ createdAt: -1 });
+    
+    return res.json({ applications });
+  } catch (error) {
+    console.error('Error fetching institute applications:', error);
+    return res.status(500).json({ error: 'Failed to fetch applications' });
+  }
+});
+
+// Update application status (approve/reject) - admin only
+router.put('/:id/applications/:applicationId/status', ensureAuthenticated, async (req, res) => {
+  try {
+    const { id: instituteId, applicationId } = req.params;
+    const { status } = req.body;
+    
+    if (!['accepted', 'rejected', 'review'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Must be accepted, rejected, or review' });
+    }
+    
+    // Check if user is the owner of the institute
+    const institute = await Institute.findById(instituteId);
+    if (!institute) {
+      return res.status(404).json({ error: 'Institute not found' });
+    }
+    
+    if (String(institute.owner) !== String(req.user._id)) {
+      return res.status(403).json({ error: 'Unauthorized: Only institute owner can update applications' });
+    }
+    
+    // Update the application status
+    const updatedApplication = await StudentApplication.findByIdAndUpdate(
+      applicationId,
+      { status },
+      { new: true }
+    ).populate('user', 'username email profileImage');
+    
+    if (!updatedApplication) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+    
+    return res.json({ 
+      success: true, 
+      application: updatedApplication,
+      message: `Application ${status} successfully` 
+    });
+  } catch (error) {
+    console.error('Error updating application status:', error);
+    return res.status(500).json({ error: 'Failed to update application status' });
+  }
+});
+
 // Notifications: create and list
 router.post('/:id/notifications', ensureAuthenticated, async (req, res) => {
   try {
@@ -913,14 +1018,156 @@ router.get('/:id/messages', async (req, res) => {
   }
 });
 
+// Helper to normalize date as YYYY-MM-DD
+const getYYYYMMDD = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Tasks: create today's class task (owner only)
+router.post('/:id/tasks', ensureAuthenticated, async (req, res) => {
+  try {
+    const instituteId = req.params.id;
+    const { title, description, type, date } = req.body;
+    if (!title || !description || !type) {
+      return res.status(400).json({ error: 'title, description and type are required' });
+    }
+
+    const institute = await Institute.findById(instituteId);
+    if (!institute) return res.status(404).json({ error: 'Institute not found' });
+    if (String(institute.owner) !== String(req.user._id)) return res.status(403).json({ error: 'Unauthorized' });
+
+    const normalizedDate = date && /\d{4}-\d{2}-\d{2}/.test(date) ? date : getYYYYMMDD();
+
+    const created = await InstituteTask.create({
+      institute: instituteId,
+      title: title.trim(),
+      description: description.trim(),
+      type: String(type).toLowerCase(),
+      date: normalizedDate
+    });
+    return res.status(201).json({ success: true, task: created });
+  } catch (error) {
+    console.error('Error creating task:', error);
+    return res.status(500).json({ error: 'Failed to create task' });
+  }
+});
+
+// Tasks: list tasks for a given date (default today) for an institute
+router.get('/:id/tasks', async (req, res) => {
+  try {
+    const instituteId = req.params.id;
+    const date = req.query.date && /\d{4}-\d{2}-\d{2}/.test(String(req.query.date))
+      ? String(req.query.date)
+      : getYYYYMMDD();
+    const items = await InstituteTask.find({ institute: instituteId, date }).sort({ createdAt: -1 });
+    return res.json({ tasks: items, date });
+  } catch (error) {
+    console.error('Error fetching tasks:', error);
+    return res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+// Tasks: list today's tasks across all institutes the current user applied to
+router.get('/tasks/my/today', ensureAuthenticated, async (req, res) => {
+  try {
+    const applications = await StudentApplication.find({ user: req.user._id }).select('institute');
+    let instituteIds = [...new Set(applications.map(a => String(a.institute)))];
+    if (instituteIds.length === 0) {
+      return res.json({ tasks: [] });
+    }
+    // Optional domain filter
+    const { domain } = req.query;
+    if (domain === 'education' || domain === 'healthcare') {
+      const allowed = await Institute.find({ _id: { $in: instituteIds }, domain }).select('_id');
+      instituteIds = allowed.map(i => String(i._id));
+      if (instituteIds.length === 0) {
+        return res.json({ tasks: [], date: getYYYYMMDD() });
+      }
+    }
+    const date = getYYYYMMDD();
+    const tasks = await InstituteTask
+      .find({ institute: { $in: instituteIds }, date })
+      .populate('institute', 'name')
+      .sort({ createdAt: -1 })
+      .limit(200);
+    return res.json({ tasks, date });
+  } catch (error) {
+    console.error('Error fetching my tasks:', error);
+    return res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+// Tasks: update a task (owner only)
+router.put('/:id/tasks/:taskId', ensureAuthenticated, async (req, res) => {
+  try {
+    const { id, taskId } = req.params;
+    const institute = await Institute.findById(id);
+    if (!institute) return res.status(404).json({ error: 'Institute not found' });
+    if (String(institute.owner) !== String(req.user._id)) return res.status(403).json({ error: 'Unauthorized' });
+
+    const updates = {};
+    const allowedFields = ['title', 'description', 'type', 'date'];
+    for (const key of allowedFields) {
+      if (key in req.body && req.body[key] !== undefined) {
+        updates[key] = req.body[key];
+      }
+    }
+
+    if (updates.title) updates.title = String(updates.title).trim();
+    if (updates.description) updates.description = String(updates.description).trim();
+    if (updates.type) updates.type = String(updates.type).toLowerCase();
+
+    const task = await InstituteTask.findOneAndUpdate(
+      { _id: taskId, institute: id },
+      { $set: updates },
+      { new: true }
+    );
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    return res.json({ success: true, task });
+  } catch (error) {
+    console.error('Error updating task:', error);
+    return res.status(500).json({ error: 'Failed to update task' });
+  }
+});
+
+// Tasks: delete a task (owner only)
+router.delete('/:id/tasks/:taskId', ensureAuthenticated, async (req, res) => {
+  try {
+    const { id, taskId } = req.params;
+    const institute = await Institute.findById(id);
+    if (!institute) return res.status(404).json({ error: 'Institute not found' });
+    if (String(institute.owner) !== String(req.user._id)) return res.status(403).json({ error: 'Unauthorized' });
+
+    const result = await InstituteTask.deleteOne({ _id: taskId, institute: id });
+    if (result.deletedCount === 0) return res.status(404).json({ error: 'Task not found' });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    return res.status(500).json({ error: 'Failed to delete task' });
+  }
+});
+
 // Get notifications for all institutes the current user has applied to
 router.get('/notifications/my', ensureAuthenticated, async (req, res) => {
   try {
     const applications = await StudentApplication.find({ user: req.user._id }).select('institute');
-    const instituteIds = [...new Set(applications.map(a => String(a.institute)))];
+    let instituteIds = [...new Set(applications.map(a => String(a.institute)))];
 
     if (instituteIds.length === 0) {
       return res.json({ notifications: [] });
+    }
+
+    // Optional domain filter
+    const { domain } = req.query;
+    if (domain === 'education' || domain === 'healthcare') {
+      const allowed = await Institute.find({ _id: { $in: instituteIds }, domain }).select('_id');
+      instituteIds = allowed.map(i => String(i._id));
+      if (instituteIds.length === 0) {
+        return res.json({ notifications: [] });
+      }
     }
 
     const notifications = await InstituteNotification
@@ -940,10 +1187,20 @@ router.get('/notifications/my', ensureAuthenticated, async (req, res) => {
 router.get('/messages/my', ensureAuthenticated, async (req, res) => {
   try {
     const applications = await StudentApplication.find({ user: req.user._id }).select('institute');
-    const instituteIds = [...new Set(applications.map(a => String(a.institute)))];
+    let instituteIds = [...new Set(applications.map(a => String(a.institute)))];
 
     if (instituteIds.length === 0) {
       return res.json({ messages: [] });
+    }
+
+    // Optional domain filter
+    const { domain } = req.query;
+    if (domain === 'education' || domain === 'healthcare') {
+      const allowed = await Institute.find({ _id: { $in: instituteIds }, domain }).select('_id');
+      instituteIds = allowed.map(i => String(i._id));
+      if (instituteIds.length === 0) {
+        return res.json({ messages: [] });
+      }
     }
 
     const messages = await InstituteMessage
@@ -956,5 +1213,124 @@ router.get('/messages/my', ensureAuthenticated, async (req, res) => {
   } catch (error) {
     console.error('Error fetching my messages:', error);
     return res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
+// Patient Applications: submit new patient registration (for hospitals)
+router.post('/:id/patient-apply', ensureAuthenticated, async (req, res) => {
+  try {
+    const hospitalId = req.params.id;
+    const { patientName, fatherName, cnic, city, department } = req.body;
+    
+    if (!patientName || !fatherName || !cnic || !city || !department) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const hospital = await Institute.findById(hospitalId);
+    if (!hospital) return res.status(404).json({ error: 'Hospital not found' });
+    if (hospital.domain !== 'healthcare') return res.status(400).json({ error: 'This endpoint is for healthcare institutes only' });
+
+    // Check if patient already applied
+    const existingApplication = await PatientApplication.findOne({ 
+      hospital: hospitalId, 
+      cnic: cnic 
+    });
+    
+    if (existingApplication) {
+      return res.status(400).json({ error: 'Patient with this CNIC has already applied' });
+    }
+
+    const application = await PatientApplication.create({
+      hospital: hospitalId,
+      user: req.user._id,
+      patientName: patientName.trim(),
+      fatherName: fatherName.trim(),
+      cnic: cnic.trim(),
+      city: city.trim(),
+      department: department.trim(),
+      profileImage: req.user.profileImage || null
+    });
+
+    return res.status(201).json({ 
+      success: true, 
+      application,
+      message: 'Patient registration submitted successfully' 
+    });
+  } catch (error) {
+    console.error('Error submitting patient application:', error);
+    return res.status(500).json({ error: 'Failed to submit patient application' });
+  }
+});
+
+// Patient Applications: get all applications for a hospital (admin only)
+router.get('/:id/patient-applications', ensureAuthenticated, async (req, res) => {
+  try {
+    const hospitalId = req.params.id;
+    
+    const hospital = await Institute.findById(hospitalId);
+    if (!hospital) return res.status(404).json({ error: 'Hospital not found' });
+    if (String(hospital.owner) !== String(req.user._id)) return res.status(403).json({ error: 'Unauthorized' });
+
+    const applications = await PatientApplication.find({ hospital: hospitalId })
+      .populate('user', 'username email profileImage')
+      .sort({ createdAt: -1 });
+
+    return res.json({ applications });
+  } catch (error) {
+    console.error('Error fetching patient applications:', error);
+    return res.status(500).json({ error: 'Failed to fetch patient applications' });
+  }
+});
+
+// Patient Applications: update application status (admin only)
+router.put('/:id/patient-applications/:applicationId', ensureAuthenticated, async (req, res) => {
+  try {
+    const { id, applicationId } = req.params;
+    const { status, notes } = req.body;
+    
+    if (!status || !['submitted', 'review', 'accepted', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Valid status is required' });
+    }
+
+    const hospital = await Institute.findById(id);
+    if (!hospital) return res.status(404).json({ error: 'Hospital not found' });
+    if (String(hospital.owner) !== String(req.user._id)) return res.status(403).json({ error: 'Unauthorized' });
+
+    const application = await PatientApplication.findOneAndUpdate(
+      { _id: applicationId, hospital: id },
+      { 
+        $set: { 
+          status, 
+          notes: notes || '',
+          updatedAt: new Date()
+        } 
+      },
+      { new: true }
+    ).populate('user', 'username email profileImage');
+
+    if (!application) return res.status(404).json({ error: 'Application not found' });
+
+    return res.json({ 
+      success: true, 
+      application,
+      message: `Application ${status} successfully` 
+    });
+  } catch (error) {
+    console.error('Error updating patient application:', error);
+    return res.status(500).json({ error: 'Failed to update patient application' });
+  }
+});
+
+// Patient Applications: get my applications (for patients)
+router.get('/patient-applications/my', ensureAuthenticated, async (req, res) => {
+  try {
+    const applications = await PatientApplication.find({ user: req.user._id })
+      .populate('hospital', 'name city type specialization')
+      .sort({ createdAt: -1 });
+
+    return res.json({ applications });
+  } catch (error) {
+    console.error('Error fetching my patient applications:', error);
+    return res.status(500).json({ error: 'Failed to fetch applications' });
   }
 });
