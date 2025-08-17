@@ -1,12 +1,15 @@
 import { Facebook, Twitter, Instagram, Linkedin, Mail, Phone, MapPin } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
+import { useState } from "react";
+import AboutPopup from "./ui/AboutPopup";
+import TermsPopup from "./ui/TermsPopup";
 
 const footerLinks = [
-  { label: "About", href: "#about" },
-  { label: "Contact", href: "#contact" },
-  { label: "Terms", href: "#terms" },
-  { label: "Privacy", href: "#privacy" }
+  { label: "About", href: "#about", isPopup: true },
+  { label: "Contact", href: "#contact", isPopup: false },
+  { label: "Terms", href: "#terms", isPopup: true },
+  { label: "Privacy", href: "#privacy", isPopup: false }
 ];
 
 const socialLinks = [
@@ -17,6 +20,9 @@ const socialLinks = [
 ];
 
 export function Footer() {
+  const [showAbout, setShowAbout] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
+
   return (
     <motion.footer 
       initial={{ y: 50, opacity: 0 }}
@@ -48,10 +54,10 @@ export function Footer() {
               whileHover={{ scale: 1.05 }}
               className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent mb-4"
             >
-              MY Online 
+              Pakistan Online
             </motion.h3>
             <p className="text-slate-300 mb-6 text-lg leading-relaxed max-w-md">
-              Connecting communities, empowering businesses, and creating opportunities across MY Online through innovative digital solutions.
+              Connecting communities, empowering businesses, and creating opportunities across Pakistan Online through innovative digital solutions.
             </p>
             {/* Contact Info */}
             <div className="space-y-3">
@@ -62,7 +68,7 @@ export function Footer() {
                 <div className="p-2 bg-blue-500/20 rounded-lg">
                   <Mail className="h-4 w-4 text-blue-400" />
                 </div>
-                <span>info@MY Online online.com</span>
+                <span>info@pakistanonline.com</span>
               </motion.div>
               <motion.div 
                 whileHover={{ x: 5 }}
@@ -80,7 +86,7 @@ export function Footer() {
                 <div className="p-2 bg-blue-500/20 rounded-lg">
                   <MapPin className="h-4 w-4 text-blue-400" />
                 </div>
-                <span>Karachi, MY Online </span>
+                <span>Karachi, Pakistan</span>
               </motion.div>
             </div>
           </motion.div>
@@ -96,12 +102,27 @@ export function Footer() {
             <nav className="space-y-3">
               {footerLinks.map((link, index) => (
                 <motion.div key={link.label} whileHover={{ x: 5 }}>
-                  <Link
-                    to={link.href}
-                    className="text-slate-300 hover:text-blue-400 transition-colors duration-300 block py-1 font-medium"
-                  >
-                    {link.label}
-                  </Link>
+                  {link.isPopup ? (
+                    <button
+                      onClick={() => {
+                        if (link.label === "About") {
+                          setShowAbout(true);
+                        } else if (link.label === "Terms") {
+                          setShowTerms(true);
+                        }
+                      }}
+                      className="text-slate-300 hover:text-blue-400 transition-colors duration-300 block py-1 font-medium text-left w-full"
+                    >
+                      {link.label}
+                    </button>
+                  ) : (
+                    <Link
+                      to={link.href}
+                      className="text-slate-300 hover:text-blue-400 transition-colors duration-300 block py-1 font-medium"
+                    >
+                      {link.label}
+                    </Link>
+                  )}
                 </motion.div>
               ))}
             </nav>
@@ -173,15 +194,27 @@ export function Footer() {
               className="text-slate-400 text-center"
             >
               <p className="font-medium">
-                © 2024 MY Online . All rights reserved.
+                © 2024 Pakistan Online. All rights reserved.
               </p>
               <p className="text-sm mt-1">
-                Built with ❤️ for MY Online 
+                Built with ❤️ for Pakistan Online
               </p>
             </motion.div>
           </div>
         </div>
       </div>
+
+      {/* About Popup */}
+      <AboutPopup
+        isOpen={showAbout}
+        onClose={() => setShowAbout(false)}
+      />
+
+      {/* Terms Popup */}
+      <TermsPopup
+        isOpen={showTerms}
+        onClose={() => setShowTerms(false)}
+      />
     </motion.footer>
   );
 }
