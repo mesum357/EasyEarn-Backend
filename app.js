@@ -73,8 +73,8 @@ const allowedOrigins = [
   // Custom domain
   'https://kingeasyearn.com', // Production Frontend URL
   // Additional Railway patterns
-  /\.railway\.app$/, // Allow all Railway apps
-  /\.vercel\.app$/, // Allow all Vercel apps
+  /\.railway\.app$/,
+  /\.vercel\.app$/,
   // Backend URLs
   'https://easyearn-backend-4.onrender.com',
   'https://easyearn-backend-production.up.railway.app', // Railway backend URL
@@ -293,14 +293,20 @@ if (process.env.COOKIE_DOMAIN) {
   console.log('Production environment: Not setting cookie domain to allow cross-origin cookies');
 }
 
-const sessionStore = MongoStore.create({
-  mongoUrl: process.env.MONGODB_URI,
-  collectionName: 'sessions',
-  touchAfter: 24 * 3600, // lazy session update
-  autoRemove: 'native',
-  ttl: 24 * 60 * 60, // 24 hours session TTL
-  stringify: false, // Don't stringify session data for better debugging
-});
+let sessionStore;
+if (process.env.MONGODB_URI) {
+  sessionStore = MongoStore.create({
+    mongoUrl: process.env.MONGODB_URI,
+    collectionName: 'sessions',
+    touchAfter: 24 * 3600, // lazy session update
+    autoRemove: 'native',
+    ttl: 24 * 60 * 60, // 24 hours session TTL
+    stringify: false, // Don't stringify session data for better debugging
+  });
+} else {
+  console.warn('⚠️ MONGODB_URI not set. Falling back to in-memory session store for local development.');
+  sessionStore = new session.MemoryStore();
+}
 
 app.use(session({
     secret: process.env.SESSION_SECRET || 'fallback-secret-key-change-in-production',
@@ -376,10 +382,22 @@ app.use(async (req, res, next) => {
             const user = await User.findById(session.userId);
             if (user) {
               console.log(`   ✅ SESSION RECOVERY SUCCESS: User ${user.username}`);
-              req.sessionID = cookieSessionId;
-              req.session = session;
-              req.user = user;
-              req.isAuthenticated = () => true;
+              
+              // Don't replace req.session directly - copy data instead
+              req.session.userId = session.userId;
+              req.session.passport = session.passport || {};
+              if (session.passport && session.passport.user) {
+                req.session.passport.user = session.passport.user;
+              }
+              
+              // Use req.login to properly set up authentication
+              req.login(user, (loginErr) => {
+                if (!loginErr) {
+                  console.log('Session recovery login successful');
+                } else {
+                  console.error('Session recovery login error:', loginErr);
+                }
+              });
             }
           } else {
             console.log(`   ❌ SESSION RECOVERY FAILED: No valid session found`);
@@ -470,8 +488,10 @@ app.get('/test-session', (req, res) => {
 app.get('/debug-auth', (req, res) => {
   console.log('Debug auth request - Headers:', {
     origin: req.headers.origin,
-    cookie: req.headers.cookie,
-    authorization: req.headers.authorization
+    referer: req.headers.referer,
+    userAgent: req.headers['user-agent'],
+    contentType: req.headers['content-type'],
+    accept: req.headers.accept
   });
   
   // Try to recover session from cookie if session ID doesn't match
@@ -663,6 +683,14 @@ const userSchema = new mongoose.Schema({
         default: Date.now
     },
     verified: {
+        type: Boolean,
+        default: false
+    },
+    hasDeposited: {
+        type: Boolean,
+        default: false
+    },
+    tasksUnlocked: {
         type: Boolean,
         default: false
     },
@@ -922,7 +950,7 @@ app.post("/register", async function(req, res) {
                 success: true, 
                 message: DISABLE_EMAILS 
                     ? 'Registration successful! Your account has been automatically verified for testing. You can now log in.'
-                    : 'Registration successful! Please check your email to verify your account. Referral bonus will be given after email verification.',
+                    : 'Registration successful! Please check your email to verify your account.',
                 referralCode: userReferralCode,
                 autoVerified: DISABLE_EMAILS
             });
@@ -1247,25 +1275,45 @@ app.get('/me', async (req, res) => {
   
   // Enhanced authentication check using both Passport and session data
   if (req.isAuthenticated() && req.user) {
+    // Always refresh user from DB to reflect admin-side changes (e.g., activation)
+    let freshUser = null;
+    try {
+      freshUser = await User.findById(req.user._id);
+    } catch (e) {
+      console.warn('⚠️ /me endpoint - Failed to fetch fresh user from DB:', e.message);
+    }
+
+    const userToReturn = freshUser || req.user;
+
+    // If we fetched a fresher copy, update the session's user
+    if (freshUser) {
+      try {
+        await new Promise((resolve, reject) => {
+          req.login(freshUser, (err) => (err ? reject(err) : resolve()));
+        });
+        console.log('✅ /me endpoint - Session user refreshed from DB');
+      } catch (e) {
+        console.warn('⚠️ /me endpoint - Could not refresh session user:', e.message);
+      }
+    }
+
     // Log successful authentication
-    console.log('👤 /me endpoint - User authenticated:', req.user.username);
-    console.log(`   User ID: ${req.user._id}`);
-    console.log(`   Balance: $${req.user.balance || 0}`);
-    console.log(`   hasDeposited: ${req.user.hasDeposited || false}`);
-    console.log(`   Tasks Status: ${(req.user.hasDeposited || false) ? '🔓 UNLOCKED' : '🔒 LOCKED'}`);
-    
-    // Touch the session to reset expiration time
-    req.session.touch();
+    console.log('👤 /me endpoint - User authenticated:', userToReturn.username);
+    console.log(`   User ID: ${userToReturn._id}`);
+    console.log(`   Balance: $${userToReturn.balance || 0}`);
+    console.log(`   hasDeposited: ${userToReturn.hasDeposited || false}`);
+    console.log(`   Tasks Status: ${(userToReturn.hasDeposited || false) ? '🔓 UNLOCKED' : '🔒 LOCKED'}`);
     
     // Return user info
     return res.json({ 
       user: {
-        _id: req.user._id,
-        username: req.user.username,
-        email: req.user.email,
-        balance: req.user.balance || 0,
-        hasDeposited: req.user.hasDeposited || false,
-        referralCode: req.user.referralCode
+        _id: userToReturn._id,
+        username: userToReturn.username,
+        email: userToReturn.email,
+        balance: userToReturn.balance || 0,
+        hasDeposited: userToReturn.hasDeposited || false,
+        tasksUnlocked: userToReturn.tasksUnlocked || false,
+        referralCode: userToReturn.referralCode
       },
       sessionId: req.sessionID
     });
@@ -1321,44 +1369,65 @@ app.get('/me', async (req, res) => {
         console.log('Session ID mismatch in /me. Cookie ID:', cookieMatch[1], 'Server ID:', req.sessionID);
         
         // Try to recover session from the cookie session ID
-        sessionStore.get(cookieMatch[1], async (err, session) => {
-          if (session && session.userId) {
-            try {
-              const user = await User.findById(session.userId);
-              if (user) {
-                console.log('Recovered user in /me:', user.username);
-                req.login(user, (err) => {
-                  if (!err) {
-                    console.log('Successfully recovered authentication in /me');
-                    return res.json({ 
-                      user: {
-                        _id: user._id,
-                        username: user.username,
-                        email: user.email,
-                        balance: user.balance || 0,
-                        hasDeposited: user.hasDeposited || false,
-                        referralCode: user.referralCode
-                      },
-                      sessionId: req.sessionID,
-                      recovered: true
-                    });
-                  } else {
-                    console.error('Failed to recover authentication:', err);
-                    return res.status(401).json({ 
-                      error: 'Not authenticated',
-                      sessionPresent: !!req.session,
-                      cookiesPresent: !!req.headers.cookie,
-                      recoveryFailed: true
-                    });
-                  }
-                });
-                return; // Exit early
-              }
-            } catch (error) {
-              console.error('Error during session recovery:', error);
+        try {
+          sessionStore.get(cookieMatch[1], async (err, sessionData) => {
+            if (err) {
+              console.error('Error retrieving session:', err);
+              return res.status(401).json({ error: 'Not authenticated' });
             }
-          }
-        });
+            
+            if (sessionData && sessionData.userId) {
+              try {
+                const user = await User.findById(sessionData.userId);
+                if (user) {
+                  console.log('   🔄 RECOVERING SESSION: Found session for user', user._id);
+                  console.log('   ✅ SESSION RECOVERY SUCCESS: User', user.username);
+                  
+                  req.login(user, (err) => {
+                    if (!err) {
+                      console.log('Successfully recovered authentication in /me');
+                      return res.json({ 
+                        user: {
+                          _id: user._id,
+                          username: user.username,
+                          email: user.email,
+                          balance: user.balance || 0,
+                          hasDeposited: user.hasDeposited || false,
+                          referralCode: user.referralCode
+                        },
+                        sessionId: req.sessionID,
+                        recovered: true
+                      });
+                    } else {
+                      console.error('Failed to recover authentication:', err);
+                      return res.status(401).json({ 
+                        error: 'Not authenticated',
+                        sessionPresent: !!req.session,
+                        cookiesPresent: !!req.headers.cookie,
+                        recoveryFailed: true
+                      });
+                    }
+                  });
+                  return; // Exit early
+                }
+              } catch (error) {
+                console.error('Error during session recovery:', error);
+                return res.status(401).json({ error: 'Session recovery failed' });
+              }
+            }
+            
+            // If no valid session data found, continue to not authenticated response
+            return res.status(401).json({ 
+              error: 'Not authenticated',
+              sessionPresent: !!req.session,
+              cookiesPresent: !!req.headers.cookie,
+              recoveryAttempted: true
+            });
+          });
+          return; // Exit early to prevent fall-through
+        } catch (error) {
+          console.error('Error in session recovery process:', error);
+        }
       }
     }
     
@@ -2299,6 +2368,70 @@ app.get('/api/admin/users', async (req, res) => {
   }
 });
 
+// Admin: Activate a user (set hasDeposited and tasksUnlocked to true)
+app.put('/api/admin/users/:id/activate', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Set hasDeposited and tasksUnlocked to true
+    user.hasDeposited = true;
+    user.tasksUnlocked = true;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'User activated successfully',
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        hasDeposited: user.hasDeposited,
+        tasksUnlocked: user.tasksUnlocked
+      }
+    });
+  } catch (err) {
+    console.error('Error activating user:', err);
+    res.status(500).json({ error: 'Failed to activate user', details: err.message });
+  }
+});
+
+// Admin: Deactivate a user (lock tasks regardless of deposits)
+app.put('/api/admin/users/:id/deactivate', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Lock tasks regardless of deposit status
+    user.hasDeposited = false;
+    user.tasksUnlocked = false;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'User deactivated successfully',
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        hasDeposited: user.hasDeposited,
+        tasksUnlocked: user.tasksUnlocked
+      }
+    });
+  } catch (err) {
+    console.error('Error deactivating user:', err);
+    res.status(500).json({ error: 'Failed to deactivate user', details: err.message });
+  }
+});
+
 // Notification Schema
 const notificationSchema = new mongoose.Schema({
   title: String,
@@ -3137,43 +3270,68 @@ app.post('/api/admin/generate-referral-codes', async (req, res) => {
   }
 });
 
+const { streamUpload, uploadTaskScreenshot, uploadHomepageEntry, uploadDepositReceipt } = require('./cloudinary.js');
+
 // Set up storage for uploaded files
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, 'uploads'));
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
-  }
-});
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// Serve uploaded files statically
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// File upload endpoint
-app.post('/api/upload', upload.single('file'), (req, res) => {
+// File upload endpoint - General purpose with Cloudinary
+app.post('/api/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
-  // Return the file URL
-  const fileUrl = `/uploads/${req.file.filename}`;
-  res.json({ url: fileUrl });
+  
+  // Validate file type - allow images and common document types
+  const allowedTypes = /jpeg|jpg|png|gif|webp|pdf|doc|docx/;
+  const extname = allowedTypes.test(req.file.originalname.toLowerCase());
+  const mimetype = allowedTypes.test(req.file.mimetype);
+  
+  if (!mimetype || !extname) {
+    return res.status(400).json({ error: 'Only image and document files are allowed' });
+  }
+  
+  // Validate file size (max 10MB)
+  if (req.file.size > 10 * 1024 * 1024) {
+    return res.status(400).json({ error: 'File size must be less than 10MB' });
+  }
+  
+  try {
+    const result = await streamUpload(req.file.buffer);
+    res.json({ success: true, url: result.secure_url });
+  } catch (error) {
+    console.error('Error uploading to Cloudinary:', error);
+    res.status(500).json({ error: 'Failed to upload file' });
+  }
 });
 
-// Screenshot upload endpoint for task submissions
-app.post('/api/upload-screenshot', upload.single('file'), (req, res) => {
+// Screenshot upload endpoint for task submissions - Uses Cloudinary
+app.post('/api/upload-screenshot', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
-  // Return the file URL with proper protocol
-  const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-  res.json({ url: fileUrl });
+  
+  // Validate file type - only images for screenshots
+  if (!req.file.mimetype.startsWith('image/')) {
+    return res.status(400).json({ error: 'Only image files are allowed for screenshots' });
+  }
+  
+  // Validate file size (max 5MB for screenshots)
+  if (req.file.size > 5 * 1024 * 1024) {
+    return res.status(400).json({ error: 'Screenshot size must be less than 5MB' });
+  }
+  
+  try {
+    const result = await streamUpload(req.file.buffer);
+    res.json({ success: true, url: result.secure_url });
+  } catch (error) {
+    console.error('Error uploading screenshot to Cloudinary:', error);
+    res.status(500).json({ error: 'Failed to upload screenshot' });
+  }
 });
 
-// Image upload endpoint for deposit receipts
-app.post('/api/upload-image', ensureAuthenticated, upload.single('image'), (req, res) => {
+// Image upload endpoint for deposit receipts - Uses Cloudinary
+app.post('/api/upload-image', ensureAuthenticated, upload.single('image'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No image uploaded' });
   }
@@ -3188,9 +3346,119 @@ app.post('/api/upload-image', ensureAuthenticated, upload.single('image'), (req,
     return res.status(400).json({ error: 'Image size must be less than 5MB' });
   }
   
-  // Return the file URL
-  const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-  res.json({ url: fileUrl });
+  try {
+    const result = await streamUpload(req.file.buffer);
+    res.json({ success: true, url: result.secure_url });
+  } catch (error) {
+    console.error('Error uploading deposit receipt to Cloudinary:', error);
+    res.status(500).json({ error: 'Failed to upload deposit receipt' });
+  }
+});
+
+// Dedicated upload endpoint for task screenshots
+app.post('/api/upload-task-screenshot', ensureAuthenticated, upload.single('screenshot'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No screenshot uploaded' });
+  }
+  
+  // Validate file type - only images for task screenshots
+  if (!req.file.mimetype.startsWith('image/')) {
+    return res.status(400).json({ error: 'Only image files are allowed for task screenshots' });
+  }
+  
+  // Validate file size (max 5MB for screenshots)
+  if (req.file.size > 5 * 1024 * 1024) {
+    return res.status(400).json({ error: 'Screenshot size must be less than 5MB' });
+  }
+  
+  try {
+    // Upload to Cloudinary with task-specific settings
+    const result = await uploadTaskScreenshot(req.file.buffer);
+    
+    console.log(`Task screenshot uploaded by user ${req.user._id}: ${result.secure_url}`);
+    
+    res.json({ 
+      success: true, 
+      url: result.secure_url,
+      type: 'task-screenshot',
+      folder: 'easyearn/tasks'
+    });
+  } catch (error) {
+    console.error('Error uploading task screenshot to Cloudinary:', error);
+    res.status(500).json({ error: 'Failed to upload task screenshot' });
+  }
+});
+
+// Dedicated upload endpoint for homepage/lucky draw entries
+app.post('/api/upload-homepage-entry', ensureAuthenticated, upload.single('entry'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No entry file uploaded' });
+  }
+  
+  // Validate file type - allow images and PDFs for entries
+  const allowedTypes = /jpeg|jpg|png|gif|webp|pdf/;
+  const extname = allowedTypes.test(req.file.originalname.toLowerCase());
+  const mimetype = allowedTypes.test(req.file.mimetype);
+  
+  if (!mimetype || !extname) {
+    return res.status(400).json({ error: 'Only image and PDF files are allowed for entries' });
+  }
+  
+  // Validate file size (max 8MB for entries)
+  if (req.file.size > 8 * 1024 * 1024) {
+    return res.status(400).json({ error: 'Entry file size must be less than 8MB' });
+  }
+  
+  try {
+    // Upload to Cloudinary with homepage-specific settings
+    const result = await uploadHomepageEntry(req.file.buffer);
+    
+    console.log(`Homepage entry uploaded by user ${req.user._id}: ${result.secure_url}`);
+    
+    res.json({ 
+      success: true, 
+      url: result.secure_url,
+      type: 'homepage-entry',
+      folder: 'easyearn/homepage'
+    });
+  } catch (error) {
+    console.error('Error uploading homepage entry to Cloudinary:', error);
+    res.status(500).json({ error: 'Failed to upload homepage entry' });
+  }
+});
+
+// Dedicated upload endpoint for deposit receipts
+app.post('/api/upload-deposit-receipt', ensureAuthenticated, upload.single('receipt'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No receipt uploaded' });
+  }
+  
+  // Validate file type - only images for receipts
+  if (!req.file.mimetype.startsWith('image/')) {
+    return res.status(400).json({ error: 'Only image files are allowed for receipts' });
+  }
+  
+  // Validate file size (max 5MB for receipts)
+  if (req.file.size > 5 * 1024 * 1024) {
+    return res.status(400).json({ error: 'Receipt size must be less than 5MB' });
+  }
+  
+  try {
+    // Upload to Cloudinary with deposit-specific settings
+    const result = await uploadDepositReceipt(req.file.buffer);
+    
+    console.log(`Deposit receipt uploaded by user ${req.user._id}: ${result.secure_url}`);
+    
+    res.json({ 
+      success: true, 
+      url: result.secure_url,
+      type: 'deposit-receipt',
+      folder: 'easyearn/deposits'
+    });
+  } catch (error) {
+    console.error('Error uploading deposit receipt to Cloudinary:', error);
+    res.status(500).json({ error: 'Failed to upload deposit receipt' });
+  }
 });
 
 // Get or create withdrawal requirements for current period
@@ -3441,8 +3709,7 @@ app.get('/api/tasks', ensureAuthenticated, async (req, res) => {
     // First, let's see all tasks for debugging
     const allTasks = await Task.find({}).sort({ createdAt: -1 });
     console.log('All tasks in database:', allTasks.length)
-    console.log('Task statuses:', allTasks.map(t => ({ id: t._id, title: t.title, status: t.status })))
-    
+    console.log('Task statuses:', allTasks.map(t => ({ id: t._id, title: t.title, status: t.status })))    
     const tasks = await Task.find({ status: 'active' }).sort({ createdAt: -1 });
     console.log('Active tasks found:', tasks.length)
     
@@ -3928,7 +4195,7 @@ app.delete('/api/admin/lucky-draws/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('Error deleting lucky draw:', error);
-    res.status(500).json({ success: false, error: 'Failed to delete lucky draw' });
+    res.status(500).json({ error: 'Failed to delete lucky draw' });
   }
 });
 
