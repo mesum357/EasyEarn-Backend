@@ -100,7 +100,7 @@ export default function Hospital() {
           backgroundPosition: 'center'
         }}
       >
-        <div className="absolute inset-0 bg-background/20" />
+        <div className="absolute inset-0 bg-background/80" />
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
           <div className="text-center">
             <motion.div initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2, duration: 0.6 }}>
@@ -129,7 +129,7 @@ export default function Hospital() {
                 </div>
               </div>
               <p className="text-lg sm:text-xl text-muted-foreground mb-6 sm:mb-8 max-w-3xl mx-auto px-4">
-                Discover trusted hospitals across Pakistan. Building trust through healthcare.
+                Locate nearby hospitals, clinics and healthcare professionals you can trust. View facility details, specialties, patient reviews, and contact or book appointments directly
               </p>
               <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center px-4">
                 <Button onClick={() => navigate('/hospital/create')} className="bg-primary hover:bg-primary/90 w-full sm:w-auto" size="lg">
