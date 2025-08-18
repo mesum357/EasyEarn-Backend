@@ -22,6 +22,14 @@ RUN npm run build
 # Remove dev dependencies to reduce image size
 RUN npm prune --production
 
+# Print build info for debugging
+RUN echo "=== Build Complete ===" && \
+    echo "Node version: $(node --version)" && \
+    echo "NPM version: $(npm --version)" && \
+    echo "Working directory: $(pwd)" && \
+    echo "Files in dist: $(ls -la dist/)" && \
+    echo "======================"
+
 # Expose port
 EXPOSE 8080
 
