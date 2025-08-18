@@ -22,6 +22,9 @@ RUN npm run build
 # Remove dev dependencies to reduce image size
 RUN npm prune --production
 
+# Install serve globally for static file serving
+RUN npm install -g serve
+
 # Print build info for debugging
 RUN echo "=== Build Complete ===" && \
     echo "Node version: $(node --version)" && \
@@ -38,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/ || exit 1
 
 # Start the application
-CMD ["npm", "run", "start:direct"]
+CMD ["serve", "dist", "-p", "8080", "-l", "0.0.0.0"]
