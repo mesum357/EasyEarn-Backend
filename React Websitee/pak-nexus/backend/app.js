@@ -827,9 +827,7 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
 
-
-// SERVICES AND ROUTES
-// Serve uploaded images statically
+// Serve uploaded files
 app.use('/uploads', express.static(uploadsDir));
 
 server.listen(PORT, () => {
