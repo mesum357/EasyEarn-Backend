@@ -22,17 +22,6 @@ RUN npm run build
 # Remove dev dependencies to reduce image size
 RUN npm prune --production
 
-# Make start script executable
-RUN chmod +x start.sh
-
-# Create a non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nextjs -u 1001
-
-# Change ownership of the app directory
-RUN chown -R nextjs:nodejs /app
-USER nextjs
-
 # Expose port
 EXPOSE 8080
 
@@ -41,4 +30,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/ || exit 1
 
 # Start the application
-CMD ["./start.sh"]
+CMD ["npm", "run", "start:direct"]
