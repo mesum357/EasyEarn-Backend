@@ -2,7 +2,7 @@
 builder = "DOCKERFILE"
 
 [deploy]
-startCommand = "serve dist -p 8080 --listen 0.0.0.0"
+startCommand = "node server.js"
 healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
