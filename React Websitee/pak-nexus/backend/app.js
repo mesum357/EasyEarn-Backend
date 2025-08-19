@@ -747,7 +747,7 @@ app.put('/api/admin/public/institute/:id/approval', async function(req, res) {
   }
 });
 
-app.put('/api/admin/public/shop/:id/approval', async function(req, res) => {
+app.put('/api/admin/public/shop/:id/approval', async function(req, res) {
   try {
     const { status, notes } = req.body;
     
@@ -777,7 +777,7 @@ app.put('/api/admin/public/shop/:id/approval', async function(req, res) => {
   }
 });
 
-app.put('/api/admin/public/product/:id/approval', async function(req, res) => {
+app.put('/api/admin/public/product/:id/approval', async function(req, res) {
   try {
     const { status, notes } = req.body;
     
