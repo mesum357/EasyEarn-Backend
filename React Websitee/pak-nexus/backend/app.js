@@ -738,11 +738,14 @@ app.get('/api/admin/public/payment-requests', async function(req, res) {
     // Populate Agent IDs from associated entities for payment requests that don't have them
     const enhancedPaymentRequests = await Promise.all(
       paymentRequests.map(async (payment) => {
-        console.log(`Processing payment ${payment._id}: agentId=${payment.agentId}, entityId=${payment.entityId}, entityType=${payment.entityType}`);
+        console.log(`\n🔍 Processing payment ${payment._id}:`);
+        console.log(`   Current agentId: ${payment.agentId}`);
+        console.log(`   Entity Type: ${payment.entityType}`);
+        console.log(`   Entity ID: ${payment.entityId}`);
         
         // If payment already has agentId, use it
         if (payment.agentId) {
-          console.log(`Payment ${payment._id} already has agentId: ${payment.agentId}`);
+          console.log(`   ✅ Payment already has agentId: ${payment.agentId}`);
           return payment;
         }
         
@@ -764,21 +767,28 @@ app.get('/api/admin/public/payment-requests', async function(req, res) {
             }
             if (entity && entity.agentId) {
               payment.agentId = entity.agentId;
-              console.log(`Found Agent ID ${entity.agentId} for payment ${payment._id} from ${payment.entityType} ${payment.entityId}`);
+              console.log(`   ✅ Found Agent ID ${entity.agentId} for payment ${payment._id} from ${payment.entityType} ${payment.entityId}`);
             } else if (entity) {
-              console.log(`Entity found for payment ${payment._id} but no Agent ID set: ${entity.name || entity.shopName || entity.title}`);
+              console.log(`   ⚠️ Entity found for payment ${payment._id} but no Agent ID set: ${entity.name || entity.shopName || entity.title}`);
             } else {
-              console.log(`No entity found for payment ${payment._id} with entityId: ${payment.entityId}`);
+              console.log(`   ❌ No entity found for payment ${payment._id} with entityId: ${payment.entityId}`);
             }
           } catch (error) {
-            console.log(`Error fetching entity for payment ${payment._id}:`, error.message);
+            console.log(`   ❌ Error fetching entity for payment ${payment._id}:`, error.message);
           }
         } else {
-          console.log(`Payment ${payment._id} has no entityId, skipping Agent ID lookup`);
+          console.log(`   ⚠️ Payment ${payment._id} has no entityId, skipping Agent ID lookup`);
         }
+        
+        console.log(`   Final agentId: ${payment.agentId}`);
         return payment;
       })
     );
+    
+    console.log('\n📊 Final enhanced payment requests:');
+    enhancedPaymentRequests.forEach((payment, index) => {
+      console.log(`   ${index + 1}. Payment ${payment._id}: agentId = ${payment.agentId || 'N/A'}`);
+    });
     
     const totalPages = Math.ceil(total / limit);
     
