@@ -711,6 +711,102 @@ app.get('/api/admin/public/pending-entities', async function(req, res) {
   }
 });
 
+// Add public approval endpoints (no authentication required for testing)
+app.put('/api/admin/public/institute/:id/approval', async function(req, res) {
+  try {
+    const { status, notes } = req.body;
+    
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Must be "approved" or "rejected"' });
+    }
+
+    const institute = await Institute.findById(req.params.id);
+    if (!institute) {
+      return res.status(404).json({ error: 'Institute not found' });
+    }
+
+    institute.approvalStatus = status;
+    institute.approvalNotes = notes || '';
+    institute.approvedAt = new Date();
+    
+    // If approved, also set verified to true
+    if (status === 'approved') {
+      institute.verified = true;
+    }
+
+    await institute.save();
+
+    res.json({ 
+      success: true, 
+      message: `Institute ${status} successfully`,
+      institute 
+    });
+  } catch (error) {
+    console.error('Error updating institute approval:', error);
+    res.status(500).json({ error: 'Failed to update institute approval' });
+  }
+});
+
+app.put('/api/admin/public/shop/:id/approval', async function(req, res) => {
+  try {
+    const { status, notes } = req.body;
+    
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Must be "approved" or "rejected"' });
+    }
+
+    const shop = await Shop.findById(req.params.id);
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+
+    shop.approvalStatus = status;
+    shop.approvalNotes = notes || '';
+    shop.approvedAt = new Date();
+
+    await shop.save();
+
+    res.json({ 
+      success: true, 
+      message: `Shop ${status} successfully`,
+      shop 
+    });
+  } catch (error) {
+    console.error('Error updating shop approval:', error);
+    res.status(500).json({ error: 'Failed to update shop approval' });
+  }
+});
+
+app.put('/api/admin/public/product/:id/approval', async function(req, res) => {
+  try {
+    const { status, notes } = req.body;
+    
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Must be "approved" or "rejected"' });
+    }
+
+    const product = await Product.findById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    product.approvalStatus = status;
+    product.approvalNotes = notes || '';
+    product.approvedAt = new Date();
+
+    await product.save();
+
+    res.json({ 
+      success: true, 
+      message: `Product ${status} successfully`,
+      product 
+    });
+  } catch (error) {
+    console.error('Error updating product approval:', error);
+    res.status(500).json({ error: 'Failed to update product approval' });
+  }
+});
+
 // Add public payment requests endpoint (no authentication required)
 app.get('/api/admin/public/payment-requests', async function(req, res) {
   try {
