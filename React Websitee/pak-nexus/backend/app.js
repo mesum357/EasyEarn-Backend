@@ -735,10 +735,53 @@ app.get('/api/admin/public/payment-requests', async function(req, res) {
       PaymentRequest.countDocuments(query)
     ]);
     
+    // Populate Agent IDs from associated entities for payment requests that don't have them
+    const enhancedPaymentRequests = await Promise.all(
+      paymentRequests.map(async (payment) => {
+        console.log(`Processing payment ${payment._id}: agentId=${payment.agentId}, entityId=${payment.entityId}, entityType=${payment.entityType}`);
+        
+        // If payment already has agentId, use it
+        if (payment.agentId) {
+          console.log(`Payment ${payment._id} already has agentId: ${payment.agentId}`);
+          return payment;
+        }
+        
+        // Try to fetch agentId from associated entity
+        if (payment.entityId) {
+          try {
+            let entity;
+            switch (payment.entityType) {
+              case 'institute':
+              case 'hospital':
+                entity = await Institute.findById(payment.entityId);
+                break;
+              case 'shop':
+                entity = await Shop.findById(payment.entityId);
+                break;
+              case 'marketplace':
+                entity = await Product.findById(payment.entityId);
+                break;
+            }
+            if (entity && entity.agentId) {
+              payment.agentId = entity.agentId;
+              console.log(`Found Agent ID ${entity.agentId} for payment ${payment._id} from ${payment.entityType} ${payment.entityId}`);
+            } else {
+              console.log(`No Agent ID found for payment ${payment._id} from ${payment.entityType} ${payment.entityId}`);
+            }
+          } catch (error) {
+            console.log(`Error fetching entity for payment ${payment._id}:`, error.message);
+          }
+        } else {
+          console.log(`Payment ${payment._id} has no entityId, skipping Agent ID lookup`);
+        }
+        return payment;
+      })
+    );
+    
     const totalPages = Math.ceil(total / limit);
     
     res.json({
-      paymentRequests,
+      paymentRequests: enhancedPaymentRequests,
       totalPages,
       currentPage: page,
       total
