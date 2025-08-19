@@ -765,8 +765,10 @@ app.get('/api/admin/public/payment-requests', async function(req, res) {
             if (entity && entity.agentId) {
               payment.agentId = entity.agentId;
               console.log(`Found Agent ID ${entity.agentId} for payment ${payment._id} from ${payment.entityType} ${payment.entityId}`);
+            } else if (entity) {
+              console.log(`Entity found for payment ${payment._id} but no Agent ID set: ${entity.name || entity.shopName || entity.title}`);
             } else {
-              console.log(`No Agent ID found for payment ${payment._id} from ${payment.entityType} ${payment.entityId}`);
+              console.log(`No entity found for payment ${payment._id} with entityId: ${payment.entityId}`);
             }
           } catch (error) {
             console.log(`Error fetching entity for payment ${payment._id}:`, error.message);
