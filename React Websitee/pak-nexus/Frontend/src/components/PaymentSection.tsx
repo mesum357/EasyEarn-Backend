@@ -19,6 +19,7 @@ interface PaymentSectionProps {
   entityType: 'shop' | 'institute' | 'hospital' | 'marketplace'
   onPaymentComplete?: (paymentData: any) => void
   isRequired?: boolean
+  isSubmitting?: boolean
 }
 
 interface PaymentData {
@@ -28,13 +29,13 @@ interface PaymentData {
 export default function PaymentSection({ 
   entityType, 
   onPaymentComplete, 
-  isRequired = true 
+  isRequired = true,
+  isSubmitting = false
 }: PaymentSectionProps) {
   const { toast } = useToast()
   const [paymentData, setPaymentData] = useState<PaymentData>({
     transactionScreenshot: null
   })
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [bankDetails, setBankDetails] = useState({
     bankName: '',
@@ -91,58 +92,15 @@ export default function PaymentSection({
       return
     }
 
-    setIsSubmitting(true)
-
-    try {
-      // Create FormData for file upload
-      const formData = new FormData()
-      formData.append('entityType', entityType)
-      formData.append('transactionScreenshot', paymentData.transactionScreenshot)
-
-      // Send payment request to backend
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/payment/create`, {
-        method: 'POST',
-        credentials: 'include',
-        body: formData
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to submit payment request')
-      }
-
-      const paymentInfo = {
-        entityType,
-        timestamp: new Date().toISOString(),
-        status: 'pending',
-        id: data.paymentRequest._id
-      }
-
-      // Call the callback if provided
-      if (onPaymentComplete) {
-        onPaymentComplete(paymentInfo)
-      }
-
-      toast({ 
-        title: 'Payment Submitted', 
-        description: 'Your payment request has been submitted successfully. We will verify and process it shortly.' 
-      })
-
-      // Reset form
-      setPaymentData({
-        transactionScreenshot: null
-      })
-
-    } catch (error) {
-      toast({ 
-        title: 'Payment Error', 
-        description: error.message || 'Failed to submit payment request. Please try again.', 
-        variant: 'destructive' 
-      })
-    } finally {
-      setIsSubmitting(false)
+    // Call the callback if provided - this will handle the entity creation and payment
+    if (onPaymentComplete) {
+      onPaymentComplete(paymentData)
     }
+
+    // Reset form after successful submission
+    setPaymentData({
+      transactionScreenshot: null
+    })
   }
 
   const getEntityDisplayName = () => {
@@ -380,12 +338,12 @@ export default function PaymentSection({
               className="w-full"
               size="lg"
             >
-              {isSubmitting ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Submitting Payment...
-                </>
-              ) : (
+                             {isSubmitting ? (
+                 <>
+                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                   Creating {getEntityDisplayName()} & Submitting Payment...
+                 </>
+               ) : (
                 <>
                   <CheckCircle className="h-4 w-4 mr-2" />
                   Submit Payment Request

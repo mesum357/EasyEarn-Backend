@@ -1,6 +1,6 @@
 const express = require('express');
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 5000;
 require('dotenv').config();
 console.log('Loaded MONGODB_URI:', process.env.MONGODB_URI);
 const http = require('http');
@@ -700,10 +700,26 @@ app.get('/api/admin/public/pending-entities', async function(req, res) {
       Product.find({ approvalStatus: 'pending' }).populate('owner', 'username email fullName')
     ]);
 
+    // Add entityType field to each entity
+    const institutesWithType = pendingInstitutes.map(inst => ({
+      ...inst.toObject(),
+      entityType: 'institute'
+    }));
+    
+    const shopsWithType = pendingShops.map(shop => ({
+      ...shop.toObject(),
+      entityType: 'shop'
+    }));
+    
+    const productsWithType = pendingProducts.map(product => ({
+      ...product.toObject(),
+      entityType: 'product'
+    }));
+
     res.json({
-      institutes: pendingInstitutes,
-      shops: pendingShops,
-      products: pendingProducts
+      institutes: institutesWithType,
+      shops: shopsWithType,
+      products: productsWithType
     });
   } catch (error) {
     console.error('Error fetching pending entities:', error);
