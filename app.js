@@ -255,9 +255,14 @@ const cookieSettings = {
 const sessionHours = cookieSettings.maxAge / (1000 * 60 * 60);
 console.log(`Session lifetime: ${sessionHours} hours (${cookieSettings.maxAge}ms)`);
 
-// Always use SameSite=None in production for cross-origin cookie sharing
-// This is CRITICAL when frontend and backend are on different domains
-if (isProduction) {
+// Check if secure cookies should be disabled (override production setting for local development)
+if (process.env.DISABLE_SECURE_COOKIES === 'true') {
+  cookieSettings.secure = false;
+  cookieSettings.sameSite = 'lax';
+  console.log('⚠️ DISABLE_SECURE_COOKIES=true: Using non-secure cookies for local development');
+} else if (isProduction && process.env.DISABLE_SECURE_COOKIES !== 'true') {
+  // Always use SameSite=None in production for cross-origin cookie sharing
+  // This is CRITICAL when frontend and backend are on different domains
   cookieSettings.sameSite = 'none';
   cookieSettings.secure = true;
   console.log('Production environment: Using secure cookies with SameSite=None for cross-origin support');
@@ -2080,8 +2085,26 @@ app.get('/api/my-participations', async (req, res) => {
 // Admin: Get all participation requests
 app.get('/api/admin/participations', async (req, res) => {
   try {
-    const participations = await Participation.find({}).populate('user');
-    res.json({ participations });
+    const participations = await Participation.find({})
+      .populate('user', 'username email')
+      .populate('luckyDrawId', 'title prize')
+      .sort({ createdAt: -1 }); // Latest first
+    
+    // Transform participations to include both old and new format data
+    const transformedParticipations = participations.map(participation => {
+      const participationObj = participation.toObject();
+      
+      // For lucky draw participations, map luckyDrawId data to prize fields for admin panel compatibility
+      if (participationObj.luckyDrawId) {
+        participationObj.prizeTitle = participationObj.luckyDrawId.title;
+        participationObj.prizeId = participationObj.luckyDrawId._id;
+        participationObj.binanceUID = participationObj.walletAddress || 'N/A';
+      }
+      
+      return participationObj;
+    });
+    
+    res.json({ participations: transformedParticipations });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch participations', details: err.message });
   }
@@ -3461,6 +3484,40 @@ app.post('/api/upload-deposit-receipt', ensureAuthenticated, upload.single('rece
   }
 });
 
+// Dedicated upload endpoint for lucky draw participation receipts
+app.post('/api/upload-lucky-draw-receipt', ensureAuthenticated, upload.single('receipt'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No receipt uploaded' });
+  }
+  
+  // Validate file type - only images for receipts
+  if (!req.file.mimetype.startsWith('image/')) {
+    return res.status(400).json({ error: 'Only image files are allowed for receipts' });
+  }
+  
+  // Validate file size (max 5MB for receipts)
+  if (req.file.size > 5 * 1024 * 1024) {
+    return res.status(400).json({ error: 'Receipt size must be less than 5MB' });
+  }
+  
+  try {
+    // Upload to Cloudinary with lucky draw-specific settings
+    const result = await streamUpload(req.file.buffer);
+    
+    console.log(`Lucky draw receipt uploaded by user ${req.user._id}: ${result.secure_url}`);
+    
+    res.json({ 
+      success: true, 
+      url: result.secure_url,
+      type: 'lucky-draw-receipt',
+      folder: 'easyearn/lucky-draws'
+    });
+  } catch (error) {
+    console.error('Error uploading lucky draw receipt to Cloudinary:', error);
+    res.status(500).json({ error: 'Failed to upload lucky draw receipt' });
+  }
+});
+
 // Get or create withdrawal requirements for current period
 app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) => {
   try {
@@ -3537,12 +3594,13 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
     const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
     console.log('Total deposit amount:', totalDepositAmount);
 
-    // Check lucky draw participations in current 15-day period
+    // Check lucky draw participations in current 15-day period (only approved ones)
     const luckyDrawInPeriod = await Participation.countDocuments({
-      userId,
-      createdAt: { $gte: periodStart, $lte: periodEnd }
+      user: userId,
+      createdAt: { $gte: periodStart, $lte: periodEnd },
+      submittedButton: true // Only count approved participations
     });
-    console.log('Lucky draw participations in period:', luckyDrawInPeriod);
+    console.log('Lucky draw participations in period (approved):', luckyDrawInPeriod);
 
     // Update requirement status
     requirement.requirements.referrals.completed = referralsInPeriod;
@@ -4312,7 +4370,7 @@ app.get('/api/lucky-draws/:id', async (req, res) => {
 app.post('/api/lucky-draws/:id/participate', ensureAuthenticated, async (req, res) => {
   try {
     const { id } = req.params;
-    const { walletAddress } = req.body;
+    const { walletAddress, receiptUrl } = req.body;
     
     const luckyDraw = await LuckyDraw.findById(id);
     if (!luckyDraw) {
@@ -4340,11 +4398,12 @@ app.post('/api/lucky-draws/:id/participate', ensureAuthenticated, async (req, re
       return res.status(400).json({ success: false, error: 'Maximum participants reached for this lucky draw' });
     }
     
-    // Create participation
+    // Create participation with receipt image
     const participation = new Participation({
       user: req.user._id,
       luckyDrawId: id,
       walletAddress,
+      receiptUrl: receiptUrl || null, // Store receipt image URL if provided
       submittedButton: null // Pending admin approval
     });
     
