@@ -22,7 +22,10 @@ import {
   Facebook,
   Instagram,
   Twitter,
-  Linkedin
+  Linkedin,
+  Bell as BellIcon,
+  MessageSquare,
+  RefreshCw
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +40,8 @@ import { useState, useEffect } from 'react'
 import { API_BASE_URL } from '@/lib/config'
 import { useToast } from '@/hooks/use-toast'
 import { RichTextDisplay } from '@/components/ui/rich-text-display'
+import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 // Interface for Institute data
 interface Institute {
@@ -117,6 +122,23 @@ export default function InstituteDashboard() {
     image: null as File | null
   })
   const [facultyImagePreview, setFacultyImagePreview] = useState<string | null>(null)
+  // Notifications state
+  const [notifications, setNotifications] = useState<{ _id?: string; title?: string; message: string; createdAt?: string }[]>([])
+  const [newNotification, setNewNotification] = useState({ title: '', message: '' })
+
+  // Messages state
+  const [messages, setMessages] = useState<{ _id?: string; senderName: string; message: string; createdAt?: string }[]>([])
+  const [newMessage, setNewMessage] = useState({ senderName: '', message: '' })
+
+  // Tasks state
+  const [tasks, setTasks] = useState<{ _id?: string; title: string; description: string; type: 'theory'|'practical'|'listing'|'reading'; createdAt?: string }[]>([])
+  const [newTask, setNewTask] = useState<{ title: string; description: string; type: 'theory'|'practical'|'listing'|'reading' }>({ title: '', description: '', type: 'theory' })
+  const [editingTask, setEditingTask] = useState<{ _id: string; title: string; description: string; type: 'theory'|'practical'|'listing'|'reading' } | null>(null)
+  const [showEditTaskDialog, setShowEditTaskDialog] = useState(false)
+
+  // Applications state
+  const [applications, setApplications] = useState<any[]>([])
+  const [loadingApplications, setLoadingApplications] = useState(false)
 
   // Helper function to get full image URL
   const getImageUrl = (imagePath: string | undefined) => {
@@ -165,6 +187,24 @@ export default function InstituteDashboard() {
         setError(err.message)
         setIsLoading(false)
       })
+
+    // Load notifications
+    fetch(`${API_BASE_URL}/api/institute/${id}/notifications`)
+      .then(res => res.json())
+      .then(data => setNotifications(data.notifications || []))
+      .catch(() => setNotifications([]))
+
+    // Load messages
+    fetch(`${API_BASE_URL}/api/institute/${id}/messages`)
+      .then(res => res.json())
+      .then(data => setMessages(data.messages || []))
+      .catch(() => setMessages([]))
+
+    // Load today's tasks
+    fetch(`${API_BASE_URL}/api/institute/${id}/tasks`)
+      .then(res => res.json())
+      .then(data => setTasks(data.tasks || []))
+      .catch(() => setTasks([]))
   }, [id])
 
   // Check ownership when both institute and currentUser are available
@@ -173,6 +213,71 @@ export default function InstituteDashboard() {
       setIsOwner(String(institute.owner) === String(currentUser._id))
     }
   }, [institute, currentUser])
+
+  // Fetch applications if user is owner
+  useEffect(() => {
+    if (isOwner && id) {
+      fetchApplications()
+    }
+  }, [isOwner, id])
+
+  // Fetch applications for the institute
+  const fetchApplications = async () => {
+    if (!isOwner) return
+    
+    setLoadingApplications(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/institute/${id}/applications`, {
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setApplications(data.applications || [])
+      } else {
+        console.error('Failed to fetch applications')
+      }
+    } catch (error) {
+      console.error('Error fetching applications:', error)
+    } finally {
+      setLoadingApplications(false)
+    }
+  }
+
+  // Update application status
+  const handleUpdateApplicationStatus = async (applicationId: string, newStatus: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/institute/${id}/applications/${applicationId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ status: newStatus })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        // Update the application in the local state
+        setApplications(prev => prev.map(app => 
+          app._id === applicationId ? { ...app, status: newStatus } : app
+        ))
+        toast({
+          title: 'Success',
+          description: data.message || `Application ${newStatus} successfully`,
+        })
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to update application status')
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error?.message || 'Failed to update application status',
+        variant: 'destructive',
+      })
+    }
+  }
 
   // Handle gallery image upload
   const handleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -257,6 +362,139 @@ export default function InstituteDashboard() {
     if (file) {
       setNewFaculty(prev => ({ ...prev, image: file }))
       setFacultyImagePreview(URL.createObjectURL(file))
+    }
+  }
+
+  // Create Notification
+  const handleCreateNotification = async () => {
+    if (!newNotification.message.trim()) {
+      toast({ title: 'Validation', description: 'Notification message is required', variant: 'destructive' })
+      return
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/institute/${id}/notifications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(newNotification)
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to create notification')
+      setNotifications(prev => [data.notification, ...prev])
+      setNewNotification({ title: '', message: '' })
+      toast({ title: 'Sent', description: 'Notification sent to students.' })
+    } catch (error: any) {
+      toast({ title: 'Error', description: error?.message || 'Failed to send notification', variant: 'destructive' })
+    }
+  }
+
+  // Create Message
+  const handleCreateMessage = async () => {
+    if (!newMessage.senderName.trim() || !newMessage.message.trim()) {
+      toast({ title: 'Validation', description: 'Sender name and message are required', variant: 'destructive' })
+      return
+    }
+    
+    console.log('Sending message:', newMessage); // DEBUG
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/institute/${id}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(newMessage)
+      })
+      
+      console.log('Message response status:', res.status); // DEBUG
+      
+      const data = await res.json()
+      console.log('Message response data:', data); // DEBUG
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create message')
+      }
+      
+      // Check if data.message exists and has the expected structure
+      if (data.message && data.message._id) {
+        setMessages(prev => [data.message, ...prev])
+        setNewMessage({ senderName: '', message: '' })
+        toast({ title: 'Sent', description: 'Message sent to student inbox.' })
+      } else {
+        console.error('Invalid message response structure:', data);
+        throw new Error('Invalid response structure from server')
+      }
+    } catch (error: any) {
+      console.error('Error creating message:', error); // DEBUG
+      toast({ title: 'Error', description: error?.message || 'Failed to send message', variant: 'destructive' })
+    }
+  }
+
+  // Create Task
+  const handleCreateTask = async () => {
+    if (!newTask.title.trim() || !newTask.description.trim() || !newTask.type) {
+      toast({ title: 'Validation', description: 'Title, description and type are required', variant: 'destructive' })
+      return
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/institute/${id}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(newTask)
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to create task')
+      setTasks(prev => [data.task, ...prev])
+      setNewTask({ title: '', description: '', type: 'theory' })
+      toast({ title: 'Saved', description: "Today's class task added." })
+    } catch (error: any) {
+      toast({ title: 'Error', description: error?.message || 'Failed to add task', variant: 'destructive' })
+    }
+  }
+
+  const openEditTask = (task: { _id?: string; title: string; description: string; type: 'theory'|'practical'|'listing'|'reading' }) => {
+    if (!task._id) return
+    setEditingTask({ _id: task._id, title: task.title, description: task.description, type: task.type })
+    setShowEditTaskDialog(true)
+  }
+
+  const handleUpdateTask = async () => {
+    if (!editingTask || !editingTask._id) return
+    if (!editingTask.title.trim() || !editingTask.description.trim()) {
+      toast({ title: 'Validation', description: 'Title and description are required', variant: 'destructive' })
+      return
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/institute/${id}/tasks/${editingTask._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ title: editingTask.title, description: editingTask.description, type: editingTask.type })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to update task')
+      setTasks(prev => prev.map(t => t._id === editingTask._id ? data.task : t))
+      setShowEditTaskDialog(false)
+      setEditingTask(null)
+      toast({ title: 'Updated', description: 'Task updated successfully.' })
+    } catch (error: any) {
+      toast({ title: 'Error', description: error?.message || 'Failed to update task', variant: 'destructive' })
+    }
+  }
+
+  const handleDeleteTask = async (taskId?: string) => {
+    if (!taskId) return
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/institute/${id}/tasks/${taskId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to delete task')
+      setTasks(prev => prev.filter(t => t._id !== taskId))
+      toast({ title: 'Deleted', description: 'Task removed.' })
+    } catch (error: any) {
+      toast({ title: 'Error', description: error?.message || 'Failed to delete task', variant: 'destructive' })
     }
   }
 
@@ -801,10 +1039,339 @@ export default function InstituteDashboard() {
                   </CardContent>
                 </Card>
               </motion.div>
+
+              {/* Registration Requests Section */}
+              {isOwner && (
+                <motion.div
+                  initial={{ y: 30, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.55, duration: 0.6 }}
+                  className="relative"
+                >
+                  <Card>
+                    <CardHeader className="pb-4 sm:pb-6">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+                        <CardTitle className="flex items-center gap-2 text-lg sm:text-xl lg:text-2xl">
+                          <Users className="h-5 w-5 sm:h-6 sm:w-6" />
+                          Registration Requests
+                          {applications.length > 0 && (
+                            <Badge variant="secondary" className="ml-2">
+                              {applications.length}
+                            </Badge>
+                          )}
+                        </CardTitle>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={fetchApplications}
+                          disabled={loadingApplications}
+                          className="w-full sm:w-auto text-xs sm:text-sm"
+                        >
+                          <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 ${loadingApplications ? 'animate-spin' : ''}`} />
+                          Refresh
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      {loadingApplications ? (
+                        <div className="text-center py-8">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                          <p className="text-sm text-muted-foreground mt-2">Loading applications...</p>
+                        </div>
+                      ) : applications.length > 0 ? (
+                        <div className="space-y-4">
+                          {applications.map((application) => (
+                            <div key={application._id} className="border rounded-lg p-4 sm:p-5">
+                              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-5">
+                                <Avatar className="h-16 w-16 sm:h-20 sm:w-20 flex-shrink-0">
+                                  <AvatarImage src={getImageUrl(application.user?.profileImage)} />
+                                  <AvatarFallback className="text-lg sm:text-xl">
+                                    {application.studentName?.[0] || 'S'}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-2">
+                                    <h4 className="font-bold text-foreground text-base sm:text-lg">
+                                      {application.studentName}
+                                    </h4>
+                                    <Badge 
+                                      variant={
+                                        application.status === 'accepted' ? 'default' : 
+                                        application.status === 'rejected' ? 'destructive' : 
+                                        'secondary'
+                                      }
+                                      className="text-xs capitalize"
+                                    >
+                                      {application.status}
+                                    </Badge>
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 text-sm text-muted-foreground">
+                                    <div>
+                                      <span className="font-medium">Father's Name:</span> {application.fatherName}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">CNIC:</span> {application.cnic}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">City:</span> {application.city}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">Course:</span> {application.courseName}
+                                    </div>
+                                    {application.courseDuration && (
+                                      <div>
+                                        <span className="font-medium">Duration:</span> {application.courseDuration}
+                                      </div>
+                                    )}
+                                    {application.user?.email && (
+                                      <div>
+                                        <span className="font-medium">Email:</span> {application.user.email}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="mt-2 text-xs text-muted-foreground">
+                                    Applied on: {new Date(application.createdAt).toLocaleDateString()}
+                                  </div>
+                                </div>
+                                {application.status === 'submitted' && (
+                                  <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleUpdateApplicationStatus(application._id, 'accepted')}
+                                      className="bg-green-600 hover:bg-green-700 text-white"
+                                    >
+                                      <Check className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() => handleUpdateApplicationStatus(application._id, 'rejected')}
+                                    >
+                                      <X className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                                      Reject
+                                    </Button>
+                                  </div>
+                                )}
+                                {application.status === 'review' && (
+                                  <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleUpdateApplicationStatus(application._id, 'accepted')}
+                                      className="bg-green-600 hover:bg-green-700 text-white"
+                                    >
+                                      <Check className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() => handleUpdateApplicationStatus(application._id, 'rejected')}
+                                    >
+                                      <X className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                                      Reject
+                                    </Button>
+                                  </div>
+                                )}
+                                {(application.status === 'accepted' || application.status === 'rejected') && (
+                                  <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleUpdateApplicationStatus(application._id, 'review')}
+                                    >
+                                      <Edit3 className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                                      Review
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 sm:py-10">
+                          <Users className="h-16 w-16 sm:h-20 sm:w-20 text-muted-foreground mx-auto mb-4" />
+                          <p className="text-base sm:text-lg text-muted-foreground mb-2">No registration requests yet</p>
+                          <p className="text-sm text-muted-foreground">
+                            When students apply to your institute, their applications will appear here for review.
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )}
             </div>
 
             {/* Sidebar */}
             <div className="space-y-4 sm:space-y-6">
+              {/* Notifications Section */}
+              <motion.div
+                initial={{ y: 30, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.6, duration: 0.6 }}
+                className="relative"
+              >
+                <Card>
+                  <CardHeader className="pb-3 sm:pb-4">
+                    <CardTitle className="flex items-center gap-2 text-base sm:text-lg"><BellIcon className="h-4 w-4" /> Notifications</CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0 space-y-3">
+                    {isOwner && (
+                      <div className="space-y-2">
+                        <Input placeholder="Title (optional)" value={newNotification.title} onChange={(e) => setNewNotification(prev => ({ ...prev, title: e.target.value }))} />
+                        <Textarea placeholder="Write a notification..." value={newNotification.message} onChange={(e) => setNewNotification(prev => ({ ...prev, message: e.target.value }))} />
+                        <Button onClick={handleCreateNotification} size="sm">Send Notification</Button>
+                      </div>
+                    )}
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {notifications.map((n) => (
+                        <div key={n._id} className="p-3 border rounded-lg">
+                          {n.title && <p className="font-semibold">{n.title}</p>}
+                          <p className="text-sm text-muted-foreground">{n.message}</p>
+                          <p className="text-[10px] text-muted-foreground mt-1">{n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}</p>
+                        </div>
+                      ))}
+                      {notifications.length === 0 && <p className="text-sm text-muted-foreground">No notifications yet.</p>}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+
+              {/* Today's Tasks Section */}
+              <motion.div
+                initial={{ y: 30, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.65, duration: 0.6 }}
+                className="relative"
+              >
+                <Card>
+                  <CardHeader className="pb-3 sm:pb-4">
+                    <CardTitle className="flex items-center gap-2 text-base sm:text-lg"><Calendar className="h-4 w-4" /> Today's Class Tasks</CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0 space-y-3">
+                    {isOwner && (
+                      <div className="space-y-2">
+                        <Input placeholder="Title" value={newTask.title} onChange={(e) => setNewTask(prev => ({ ...prev, title: e.target.value }))} />
+                        <Textarea placeholder="Task details" value={newTask.description} onChange={(e) => setNewTask(prev => ({ ...prev, description: e.target.value }))} />
+                        <div className="flex items-center gap-2">
+                          <Select value={newTask.type} onValueChange={(val) => setNewTask(prev => ({ ...prev, type: val as any }))}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="theory">Theory</SelectItem>
+                              <SelectItem value="practical">Practical</SelectItem>
+                              <SelectItem value="listing">Listing</SelectItem>
+                              <SelectItem value="reading">Reading</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button onClick={handleCreateTask} size="sm">Add Task</Button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {tasks.map((t) => (
+                        <div key={t._id} className="p-3 border rounded-lg">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-sm">{t.title}</p>
+                              <Badge variant="outline" className="text-xs capitalize">{t.type}</Badge>
+                            </div>
+                            {isOwner && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">•••</Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => openEditTask(t)}>Edit</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleDeleteTask(t._id)}>Delete</DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">{t.description}</p>
+                          <p className="text-[10px] text-muted-foreground mt-1">{t.createdAt ? new Date(t.createdAt).toLocaleString() : ''}</p>
+                        </div>
+                      ))}
+                      {tasks.length === 0 && <p className="text-sm text-muted-foreground">No tasks added for today.</p>}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+
+              {/* Edit Task Dialog */}
+              <Dialog open={showEditTaskDialog} onOpenChange={setShowEditTaskDialog}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Edit Task</DialogTitle>
+                    <DialogDescription>Update the details for this task.</DialogDescription>
+                  </DialogHeader>
+                  {editingTask && (
+                    <div className="space-y-3">
+                      <Input
+                        placeholder="Title"
+                        value={editingTask.title}
+                        onChange={(e) => setEditingTask(prev => prev ? { ...prev, title: e.target.value } : prev)}
+                      />
+                      <Textarea
+                        placeholder="Task details"
+                        value={editingTask.description}
+                        onChange={(e) => setEditingTask(prev => prev ? { ...prev, description: e.target.value } : prev)}
+                      />
+                      <Select value={editingTask.type} onValueChange={(val) => setEditingTask(prev => prev ? { ...prev, type: val as any } : prev)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="theory">Theory</SelectItem>
+                          <SelectItem value="practical">Practical</SelectItem>
+                          <SelectItem value="listing">Listing</SelectItem>
+                          <SelectItem value="reading">Reading</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <div className="flex gap-2 pt-2">
+                        <Button onClick={handleUpdateTask} className="flex-1">Save</Button>
+                        <Button variant="outline" onClick={() => setShowEditTaskDialog(false)}>Cancel</Button>
+                      </div>
+                    </div>
+                  )}
+                </DialogContent>
+              </Dialog>
+
+              {/* Messages Section */}
+              <motion.div
+                initial={{ y: 30, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.7, duration: 0.6 }}
+                className="relative"
+              >
+                <Card>
+                  <CardHeader className="pb-3 sm:pb-4">
+                    <CardTitle className="flex items-center gap-2 text-base sm:text-lg"><MessageSquare className="h-4 w-4" /> Messages</CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0 space-y-3">
+                    {isOwner && (
+                      <div className="space-y-2">
+                        <Input placeholder="Sender name" value={newMessage.senderName} onChange={(e) => setNewMessage(prev => ({ ...prev, senderName: e.target.value }))} />
+                        <Textarea placeholder="Write a message to students..." value={newMessage.message} onChange={(e) => setNewMessage(prev => ({ ...prev, message: e.target.value }))} />
+                        <Button onClick={handleCreateMessage} size="sm">Send Message</Button>
+                      </div>
+                    )}
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {messages.map((m) => (
+                        <div key={m._id} className="p-3 border rounded-lg">
+                          <p className="text-sm font-semibold">{m.senderName}</p>
+                          <p className="text-sm text-muted-foreground">{m.message}</p>
+                          <p className="text-[10px] text-muted-foreground mt-1">{m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}</p>
+                        </div>
+                      ))}
+                      {messages.length === 0 && <p className="text-sm text-muted-foreground">No messages yet.</p>}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
               {/* Quick Stats */}
               <motion.div
                 initial={{ y: 30, opacity: 0 }}

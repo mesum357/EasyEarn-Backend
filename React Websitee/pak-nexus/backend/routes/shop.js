@@ -6,6 +6,7 @@ const fs = require('fs');
 const Shop = require('../models/Shop');
 const { ensureAuthenticated } = require('../middleware/auth');
 const { upload: cloudinaryUpload, cloudinary } = require('../middleware/cloudinary');
+const { generateShopAgentId } = require('../utils/agentIdGenerator');
 
 // File filter for image uploads
 const fileFilter = (req, file, cb) => {
@@ -64,11 +65,18 @@ router.post('/create', ensureAuthenticated, upload.single('shopLogo'), async (re
       },
       owner: req.user._id,
       ownerName: req.user.username || req.user.email || '',
-      ownerDp: req.user.profileImage || ''
+      ownerDp: req.user.profileImage || '',
+      // Generate unique Agent ID for the shop
+      agentId: generateShopAgentId(shopName)
     });
 
+    console.log('Creating shop with Agent ID:', shop.agentId);
+
     await shop.save();
-    res.status(201).json({ message: 'Shop created successfully', shop });
+    res.status(201).json({ 
+      message: 'Shop created successfully and is pending admin approval', 
+      shop 
+    });
   } catch (error) {
     console.error('Error creating shop:', error);
     res.status(500).json({ error: error.message });
@@ -78,7 +86,7 @@ router.post('/create', ensureAuthenticated, upload.single('shopLogo'), async (re
 // Get all shops
 router.get('/all', async (req, res) => {
   try {
-    const shops = await Shop.find().sort({ createdAt: -1 });
+    const shops = await Shop.find({ approvalStatus: 'approved' }).sort({ createdAt: -1 }); // Only show approved shops
     console.log('Found shops:', shops.length);
     res.json({ shops });
   } catch (error) {
@@ -99,6 +107,21 @@ router.get('/my-shops', ensureAuthenticated, async (req, res) => {
   }
 });
 
+// Get pending shops for current user
+router.get('/my-pending-shops', ensureAuthenticated, async (req, res) => {
+  try {
+    console.log('Fetching pending shops for user:', req.user._id);
+    const pendingShops = await Shop.find({ 
+      owner: req.user._id, 
+      approvalStatus: 'pending' 
+    });
+    console.log('Pending shops found:', pendingShops.length);
+    res.json({ pendingShops });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get shop by ID
 router.get('/:shopId', async (req, res) => {
   try {
@@ -106,6 +129,15 @@ router.get('/:shopId', async (req, res) => {
     if (!shop) {
       return res.status(404).json({ error: 'Shop not found' });
     }
+    
+    // Check if user is owner or admin, or if shop is approved
+    const isOwner = req.isAuthenticated() && shop.owner.toString() === req.user._id.toString();
+    const isAdmin = req.isAuthenticated() && req.user.isAdmin;
+    
+    if (!isOwner && !isAdmin && shop.approvalStatus !== 'approved') {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+    
     res.json({ shop });
   } catch (error) {
     console.error('Error fetching shop:', error);

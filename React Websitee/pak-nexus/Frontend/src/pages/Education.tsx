@@ -9,6 +9,8 @@ import InstituteCard from '@/components/education/InstituteCard'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { API_BASE_URL } from '@/lib/config'
+import Logo from '@/assets/Logo.png'
+import bgImage from '@/assets/colege.avif'
 
 // Define Institute type
 interface Institute {
@@ -45,14 +47,16 @@ export default function Education() {
   const [institutes, setInstitutes] = useState<Institute[]>([]);
   const [isLoading, setIsLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [hospitalNames, setHospitalNames] = useState<Set<string>>(new Set());
 
   const fetchInstitutes = () => {
     setIsLoading(true)
-    fetch(`${API_BASE_URL}/api/institute/all`)
+    fetch(`${API_BASE_URL}/api/institute/all?domain=education`)
       .then(res => res.json())
       .then(data => {
         setInstitutes(data.institutes || [])
         setIsLoading(false)
+        setHospitalNames(new Set())
       })
       .catch(() => setIsLoading(false))
   }
@@ -83,7 +87,8 @@ export default function Education() {
                          (institute.specialization || '').toLowerCase().includes(searchTerm.toLowerCase())
     const matchesCity = selectedCity === 'all' || (institute.city || '').includes(selectedCity)
     const matchesType = selectedType === 'all' || (institute.type || '').toLowerCase().includes(selectedType.toLowerCase())
-    return matchesSearch && matchesCity && matchesType
+    const isHospitalByName = hospitalNames.has(String(institute.name || '').trim())
+    return matchesSearch && matchesCity && matchesType && !isHospitalByName
   })
 
   return (
@@ -97,7 +102,7 @@ export default function Education() {
         transition={{ duration: 0.6 }}
         className="relative pt-16 sm:pt-20 pb-12 sm:pb-16"
         style={{
-          backgroundImage: `linear-gradient(rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05)), url('https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=1920&h=800&fit=crop')`,
+          backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.3)), url(${bgImage})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center'
         }}
@@ -112,13 +117,13 @@ export default function Education() {
             >
               <div className="flex flex-col sm:flex-row items-center justify-center mb-6">
                 <img 
-                  src="https://images.unsplash.com/photo-1564981797816-1043664bf78d?w=80&h=80&fit=crop&crop=face" 
+                  src={Logo} 
                   alt="Pakistan Online Logo"
-                  className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-4 border-primary shadow-lg mb-4 sm:mb-0 sm:mr-4"
+                  className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg border-4 border-primary shadow-lg mb-4 sm:mb-0 sm:mr-4"
                 />
                 <div className="text-center sm:text-left">
                   <h1 className="text-3xl sm:text-4xl md:text-6xl font-bold text-foreground">
-                    Pakistan <span className="text-primary">Online</span>
+                    Discover Local <span className="text-primary">Learning & Tutors</span>
                   </h1>
                   <div className="flex flex-col sm:flex-row items-center gap-2 mt-2">
                     <div className="flex items-center gap-2">
@@ -135,7 +140,7 @@ export default function Education() {
                 </div>
               </div>
               <p className="text-lg sm:text-xl text-muted-foreground mb-6 sm:mb-8 max-w-3xl mx-auto px-4">
-                Explore top institutes across Pakistan. Building trust through education.
+                Connect with trusted schools, colleges, tutors and training centers across Pakistan. Search courses, compare programs, read reviews from other learners, and book classes or admissions
               </p>
               <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center px-4">
                 <Button 
@@ -145,15 +150,6 @@ export default function Education() {
                 >
                   <Plus className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
                   Create Institute
-                </Button>
-                <Button 
-                  variant="outline"
-                  onClick={() => navigate('/education/dashboard')}
-                  size="lg"
-                  className="w-full sm:w-auto"
-                >
-                  <GraduationCap className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                  Student Dashboard
                 </Button>
               </div>
             </motion.div>

@@ -13,6 +13,7 @@ import Navbar from '@/components/Navbar';
 import { API_BASE_URL } from '@/lib/config';
 import { ImageCropper } from '@/components/ui/image-cropper';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
+import PaymentSection from '@/components/PaymentSection';
 
 const categories = [
   'Electronics',
@@ -53,6 +54,8 @@ export default function CreateProduct() {
   const [imagePreviews, setImagePreviews] = useState([]);
   const [tags, setTags] = useState([]);
   const [newTag, setNewTag] = useState('');
+  const [paymentCompleted, setPaymentCompleted] = useState(false);
+  const [createdProduct, setCreatedProduct] = useState<any>(null);
 
   // Image cropper states
   const [showCropper, setShowCropper] = useState(false);
@@ -70,7 +73,8 @@ export default function CreateProduct() {
     city: '',
     contactPreference: 'both',
     ownerPhone: '',
-    ownerEmail: ''
+    ownerEmail: '',
+    agentId: ''
   });
 
   useEffect(() => {
@@ -98,6 +102,81 @@ export default function CreateProduct() {
   const handleSelectChange = (name, value) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
+
+  const handlePaymentComplete = async (paymentData: any) => {
+    // First create the product to get the entityId and Agent ID
+    setIsSubmitting(true);
+    try {
+      // Prepare FormData for product creation
+      const formData = new FormData();
+      formData.append('title', formData.title);
+      formData.append('description', formData.description);
+      formData.append('price', formData.price);
+      formData.append('category', formData.category);
+      formData.append('condition', formData.condition);
+      formData.append('location', formData.location);
+      formData.append('tags', JSON.stringify(tags));
+      formData.append('acceptTerms', 'true');
+      
+      // Add images
+      imageFiles.forEach((imageFile, index) => {
+        formData.append('images', imageFile);
+      });
+
+      // Create product first
+      const productResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/marketplace`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData
+      });
+
+      if (!productResponse.ok) {
+        const errorData = await productResponse.json();
+        throw new Error(errorData.error || 'Failed to create product');
+      }
+
+      const productData = await productResponse.json();
+      console.log('Product created successfully:', productData);
+
+      // Now submit payment with the product's entityId
+      const paymentFormData = new FormData();
+      paymentFormData.append('entityType', 'marketplace');
+      paymentFormData.append('entityId', productData.product._id);
+      paymentFormData.append('transactionScreenshot', paymentData.transactionScreenshot);
+      paymentFormData.append('amount', '2000'); // Default marketplace payment amount
+
+      const paymentResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/payment/create`, {
+        method: 'POST',
+        credentials: 'include',
+        body: paymentFormData
+      });
+
+      if (!paymentResponse.ok) {
+        const paymentError = await paymentResponse.json();
+        throw new Error(paymentError.error || 'Failed to submit payment');
+      }
+
+      setPaymentCompleted(true);
+      console.log('Payment completed:', paymentData);
+      toast({ 
+        title: 'Product Created & Payment Submitted', 
+        description: 'Your product has been created successfully and payment request submitted. You can now proceed to review.' 
+      });
+
+      // Store the created product data for the review step
+      setCreatedProduct(productData.product);
+
+    } catch (error) {
+      console.error('Error creating product or submitting payment:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to create product or submit payment. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   const handleImageUpload = (e) => {
     const files = Array.from(e.target.files);
@@ -188,82 +267,13 @@ export default function CreateProduct() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!currentUser) {
-      toast({
-        title: "Error",
-        description: "Please log in to create a product",
-        variant: "destructive"
-      });
-      return;
-    }
+    // Product is already created in handlePaymentComplete, just navigate to success
+    toast({
+      title: "Product Creation Complete!",
+      description: "Your product has been created successfully and payment submitted. It is now pending admin approval!"
+    });
 
-    // Validation
-    if (!formData.title || !formData.description || !formData.price || !formData.category || !formData.location || !formData.city) {
-      toast({
-        title: "Error",
-        description: "Please fill in all required fields",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (imageFiles.length === 0) {
-      toast({
-        title: "Error",
-        description: "Please upload at least one image",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const submitData = new FormData();
-      
-      // Add form data
-      Object.keys(formData).forEach(key => {
-        submitData.append(key, formData[key]);
-      });
-
-      // Add images
-      imageFiles.forEach(file => {
-        submitData.append('images', file);
-      });
-
-      // Add tags
-      if (tags.length > 0) {
-        submitData.append('tags', JSON.stringify(tags));
-      }
-
-      const response = await fetch(`${API_BASE_URL}/api/marketplace`, {
-        method: 'POST',
-        credentials: 'include',
-        body: submitData
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create product');
-      }
-
-      toast({
-        title: "Success",
-        description: "Product created successfully!"
-      });
-
-      navigate('/marketplace');
-    } catch (error) {
-      console.error('Error creating product:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create product",
-        variant: "destructive"
-      });
-    } finally {
-      setLoading(false);
-    }
+    navigate('/marketplace');
   };
 
   if (!currentUser) {
@@ -341,6 +351,17 @@ export default function CreateProduct() {
                         placeholder="Describe your product in detail"
                         rows={4}
                         maxLength={1000}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium">Agent ID <span className="text-muted-foreground">(Optional)</span></label>
+                      <Input
+                        name="agentId"
+                        value={formData.agentId || ''}
+                        onChange={handleInputChange}
+                        placeholder="Enter agent ID if applicable"
+                        className="h-10 sm:h-10"
                       />
                     </div>
 
@@ -597,6 +618,21 @@ export default function CreateProduct() {
               </motion.div>
             </div>
 
+            {/* Payment Section */}
+            <motion.div
+              initial={{ y: 30, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              className="mt-6 sm:mt-8"
+            >
+                      <PaymentSection
+          entityType="marketplace"
+          onPaymentComplete={handlePaymentComplete}
+          isRequired={true}
+          isSubmitting={isSubmitting}
+        />
+            </motion.div>
+
             {/* Submit Button */}
             <motion.div
               initial={{ y: 30, opacity: 0 }}
@@ -607,7 +643,7 @@ export default function CreateProduct() {
               <Button
                 type="submit"
                 size="lg"
-                disabled={loading}
+                disabled={loading || !paymentCompleted}
                 className="bg-orange-500 hover:bg-orange-600 w-full sm:w-auto h-11 sm:h-12"
               >
                 {loading ? 'Creating...' : 'Create Listing'}

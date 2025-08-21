@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Upload, Plus, X, Crop } from 'lucide-react'
+import { ArrowLeft, Upload, Plus, X, Crop, ExternalLink, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Badge } from '@/components/ui/badge'
 import Navbar from '@/components/Navbar'
 import { useEffect } from 'react'
@@ -16,21 +17,31 @@ import { API_BASE_URL } from '@/lib/config'
 import { useToast } from '@/hooks/use-toast'
 import { ImageCropper } from '@/components/ui/image-cropper'
 import { RichTextEditor } from '@/components/ui/rich-text-editor'
+import PaymentSection from '@/components/PaymentSection'
+import TermsAndPolicies from '@/components/ui/TermsAndPolicies'
+import { PAKISTAN_CITIES } from '@/lib/cities'
 
 const steps = [
   "Basic Information",
   "Contact Details", 
   "Media & Branding",
   "Courses & Programs",
+  "Payment Section",
   "Review & Submit"
 ]
+
+interface CourseInput {
+  name: string;
+  duration?: string;
+}
 
 export default function CreateInstitute() {
   const navigate = useNavigate()
   const { id } = useParams<{ id?: string }>()
   const [currentStep, setCurrentStep] = useState(0)
-  const [courses, setCourses] = useState<string[]>([])
-  const [newCourse, setNewCourse] = useState("")
+  const [courses, setCourses] = useState<CourseInput[]>([])
+  const [newCourseName, setNewCourseName] = useState("")
+  const [newCourseDuration, setNewCourseDuration] = useState("")
   const [form, setForm] = useState<any>({})
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [bannerFile, setBannerFile] = useState<File | null>(null)
@@ -39,6 +50,10 @@ export default function CreateInstitute() {
   const [bannerPreview, setBannerPreview] = useState<string | null>(null)
   const { toast } = useToast();
   const [courseError, setCourseError] = useState<string | null>(null);
+  const [paymentCompleted, setPaymentCompleted] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
+  const [createdInstitute, setCreatedInstitute] = useState<any>(null);
   
   // Image cropper states
   const [showLogoCropper, setShowLogoCropper] = useState(false)
@@ -52,17 +67,20 @@ export default function CreateInstitute() {
     fetch(`${API_BASE_URL}/me`, { credentials: 'include' })
       .then(res => res.ok ? res.json() : Promise.reject())
       .catch(() => navigate('/login'));
-    if (id) {
+      if (id) {
       fetch(`${API_BASE_URL}/api/institute/${id}`)
         .then(res => res.json())
         .then(data => {
           if (data.institute) {
             setForm(data.institute)
-            // Convert course objects back to strings for display
-            const courseNames = (data.institute.courses || []).map((course: any) => 
-              typeof course === 'string' ? course : course.name || course
-            );
-            setCourses(courseNames)
+              // Map existing courses into { name, duration }
+              const courseInputs: CourseInput[] = (data.institute.courses || []).map((course: any) => {
+                if (typeof course === 'string') {
+                  return { name: course };
+                }
+                return { name: course.name || '', duration: course.duration || '' };
+              });
+              setCourses(courseInputs)
           }
         })
     } else {
@@ -77,9 +95,10 @@ export default function CreateInstitute() {
   }, [id, navigate])
 
   const addCourse = () => {
-    if (newCourse.trim()) {
-      setCourses([...courses, newCourse.trim()]);
-      setNewCourse("");
+    if (newCourseName.trim()) {
+      setCourses([...courses, { name: newCourseName.trim(), duration: newCourseDuration.trim() }]);
+      setNewCourseName("");
+      setNewCourseDuration("");
       setCourseError(null);
     } else {
       setCourseError('Course name cannot be empty');
@@ -90,12 +109,108 @@ export default function CreateInstitute() {
     setCourses(courses.filter((_, i) => i !== index))
   }
 
+  const handlePaymentComplete = async (paymentData: any) => {
+    // First create the institute to get the entityId and Agent ID
+    setIsSubmitting(true);
+    try {
+      // Prepare FormData for institute creation
+      const formData = new FormData();
+      formData.append('name', form.name);
+      formData.append('type', form.type);
+      formData.append('description', form.description);
+      formData.append('address', form.address);
+      formData.append('city', form.city);
+      formData.append('contactNumber', form.contactNumber);
+      formData.append('email', form.email);
+      formData.append('website', form.website);
+      formData.append('establishedYear', form.establishedYear);
+      formData.append('accreditation', form.accreditation);
+      formData.append('facilities', form.facilities);
+      formData.append('acceptTerms', 'true');
+      
+      if (logoFile) formData.append('logo', logoFile);
+      if (bannerFile) formData.append('banner', bannerFile);
+      
+      if (courses.length > 0) {
+        formData.append('courses', JSON.stringify(courses));
+      }
+
+      // Create institute first
+      const instituteResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/institute`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData
+      });
+
+      if (!instituteResponse.ok) {
+        const errorData = await instituteResponse.json();
+        throw new Error(errorData.error || 'Failed to create institute');
+      }
+
+      const instituteData = await instituteResponse.json();
+      console.log('Institute created successfully:', instituteData);
+
+      // Now submit payment with the institute's entityId
+      const paymentFormData = new FormData();
+      paymentFormData.append('entityType', 'institute');
+      paymentFormData.append('entityId', instituteData.institute._id);
+      paymentFormData.append('transactionScreenshot', paymentData.transactionScreenshot);
+      paymentFormData.append('amount', '10000'); // Default institute payment amount
+
+      const paymentResponse = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/payment/create`, {
+        method: 'POST',
+        credentials: 'include',
+        body: paymentFormData
+      });
+
+      if (!paymentResponse.ok) {
+        const paymentError = await paymentResponse.json();
+        throw new Error(paymentError.error || 'Failed to submit payment');
+      }
+
+      setPaymentCompleted(true);
+      console.log('Payment completed:', paymentData);
+      toast({ 
+        title: 'Institute Created & Payment Submitted', 
+        description: 'Your institute has been created successfully and payment request submitted. You can now proceed to review.' 
+      });
+
+      // Store the created institute data for the review step
+      setCreatedInstitute(instituteData.institute);
+
+    } catch (error) {
+      console.error('Error creating institute or submitting payment:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to create institute or submit payment. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const handleAcceptTerms = () => {
+    setAcceptTerms(true);
+  };
+
   const nextStep = () => {
-    // If on the courses step and newCourse is not empty, add it
-    if (currentStep === 3 && newCourse.trim()) {
+    // If on the courses step and pending course name is not empty, add it
+    if (currentStep === 3 && newCourseName.trim()) {
       addCourse();
       return; // Wait for the next click to actually go to the next step
     }
+    
+    // If trying to go to review step (step 5) without completing payment
+    if (currentStep === 4 && !paymentCompleted) {
+      toast({ 
+        title: 'Payment Required', 
+        description: 'Please complete the payment section before proceeding to review.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1)
     }
@@ -173,119 +288,19 @@ export default function CreateInstitute() {
   // Submit handler
   const handleSubmit = async () => {
     // If on the courses step and newCourse is not empty, add it and block submit
-    if (currentStep === 3 && newCourse.trim()) {
+    if (currentStep === 3 && newCourseName.trim()) {
       addCourse();
       setCourseError('Please click Add to add your course before submitting.');
       return;
     }
     
-    // Clear previous course errors
-    setCourseError(null);
-    
-    // Debug: log form state and files
-    console.log('Submitting form:', form);
-    console.log('logoFile:', logoFile);
-    console.log('bannerFile:', bannerFile);
-    console.log('courses:', courses);
-    
-    // Enhanced validation with specific error messages
-    const missingFields = [];
-    
-    if (!form.name) missingFields.push('Institute Name');
-    if (!form.type) missingFields.push('Institute Type');
-    if (!form.city) missingFields.push('City');
-    if (!form.province) missingFields.push('Province');
-    if (!form.description) missingFields.push('Description');
-    if (!form.phone) missingFields.push('Phone Number');
-    if (!form.email) missingFields.push('Email Address');
-    if (!form.address) missingFields.push('Address');
-    if (!form.specialization) missingFields.push('Main Specialization');
-    if (!logoFile) missingFields.push('Logo Image');
-    if (!bannerFile) missingFields.push('Banner Image');
-    if (courses.length === 0) {
-      missingFields.push('At least one course');
-      setCourseError('Please add at least one course');
-    }
-    
-    if (missingFields.length > 0) {
-      toast({ 
-        title: 'Missing Required Fields', 
-        description: `Please provide: ${missingFields.join(', ')}`, 
-        variant: 'destructive' 
-      });
-      return;
-    }
-    
-    setIsSubmitting(true)
-    try {
-      const formData = new FormData()
-      
-      // Add all form fields to FormData
-      Object.entries(form).forEach(([key, value]) => {
-        if (key !== 'logo' && key !== 'banner' && value) {
-          formData.append(key, value as string)
-        }
-      })
-      
-      // Convert course strings to course objects matching the backend schema
-      const courseObjects = courses.map(courseName => ({
-        name: courseName,
-        description: '',
-        duration: '',
-        fee: 0,
-        category: ''
-      }));
-      
-      // Add courses as JSON string
-      formData.append('courses', JSON.stringify(courseObjects))
-      
-      // Add files
-      if (logoFile) formData.append('logo', logoFile)
-      if (bannerFile) formData.append('banner', bannerFile)
-      
-      // Determine method and URL
-      const method = id ? 'PUT' : 'POST'
-      const url = id ? `${API_BASE_URL}/api/institute/${id}` : `${API_BASE_URL}/api/institute/create`
-      
-      console.log('Making request to:', url);
-      console.log('Method:', method);
-      
-      const res = await fetch(url, {
-        method,
-        body: formData,
-        credentials: 'include',
-      })
-      
-      console.log('Response status:', res.status);
-      
-      if (res.ok) {
-        const responseData = await res.json();
-        console.log('Success response:', responseData);
-        toast({ 
-          title: 'Success!', 
-          description: id ? 'Institute updated successfully!' : 'Institute created successfully!', 
-          variant: 'default' 
-        });
-        navigate('/education');
-      } else {
-        const errorData = await res.json();
-        console.error('Error response:', errorData);
-        toast({ 
-          title: 'Error', 
-          description: errorData.error || errorData.message || 'Failed to submit institute', 
-          variant: 'destructive' 
-        });
-      }
-    } catch (error) {
-      console.error('Network error:', error);
-      toast({ 
-        title: 'Network Error', 
-        description: 'Failed to connect to server. Please check your connection and try again.', 
-        variant: 'destructive' 
-      });
-    } finally {
-      setIsSubmitting(false)
-    }
+    // Institute is already created in handlePaymentComplete, just navigate to success
+    toast({ 
+      title: 'Institute Creation Complete!', 
+      description: 'Your institute has been created successfully and payment submitted. It is now pending admin approval!', 
+      variant: 'default' 
+    });
+    navigate('/education');
   }
 
   const renderStepContent = () => {
@@ -314,6 +329,17 @@ export default function CreateInstitute() {
               </div>
             </div>
             
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <div>
+                <Label htmlFor="agentId" className="text-sm sm:text-base">Agent ID (Optional)</Label>
+                <Input id="agentId" placeholder="Enter agent ID if applicable" value={form.agentId || ''} onChange={handleChange} className="h-10 sm:h-10" />
+              </div>
+              <div>
+                <Label htmlFor="establishedYear" className="text-sm sm:text-base">Year Established</Label>
+                <Input id="establishedYear" type="number" placeholder="e.g. 1984" value={form.establishedYear || ''} onChange={handleChange} className="h-10 sm:h-10" />
+              </div>
+            </div>
+            
             <div>
               <Label htmlFor="description" className="text-sm sm:text-base">Description *</Label>
               <RichTextEditor
@@ -326,10 +352,6 @@ export default function CreateInstitute() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-              <div>
-                <Label htmlFor="establishedYear" className="text-sm sm:text-base">Year Established</Label>
-                <Input id="establishedYear" type="number" placeholder="e.g. 1984" value={form.establishedYear || ''} onChange={handleChange} className="h-10 sm:h-10" />
-              </div>
               <div>
                 <Label htmlFor="totalStudents" className="text-sm sm:text-base">Number of Students</Label>
                 <Input id="totalStudents" placeholder="e.g. 5000" value={form.totalStudents || ''} onChange={handleChange} className="h-10 sm:h-10" />
@@ -366,20 +388,12 @@ export default function CreateInstitute() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <Label htmlFor="city">City *</Label>
-                <Select value={form.city} onValueChange={value => setForm({ ...form, city: value })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select city" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="karachi">Karachi</SelectItem>
-                    <SelectItem value="lahore">Lahore</SelectItem>
-                    <SelectItem value="islamabad">Islamabad</SelectItem>
-                    <SelectItem value="faisalabad">Faisalabad</SelectItem>
-                    <SelectItem value="multan">Multan</SelectItem>
-                    <SelectItem value="peshawar">Peshawar</SelectItem>
-                    <SelectItem value="quetta">Quetta</SelectItem>
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={form.city}
+                  onValueChange={(value) => setForm({ ...form, city: value })}
+                  placeholder="Select city"
+                  options={PAKISTAN_CITIES}
+                />
               </div>
               <div>
                 <Label htmlFor="province">Province *</Label>
@@ -520,16 +534,28 @@ export default function CreateInstitute() {
 
       case 3:
         return (
-          <div className="space-y-6">
+      <div className="space-y-6">
             <div>
               <Label>Courses & Programs *</Label>
-              <div className="flex gap-2 mt-2">
-                <Input
-                  value={newCourse}
-                  onChange={(e) => setNewCourse(e.target.value)}
-                  placeholder="Enter course name"
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCourse(); } }}
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 mt-2">
+                <div className="sm:col-span-3">
+                  <Input
+                    value={newCourseName}
+                    onChange={(e) => setNewCourseName(e.target.value)}
+                    placeholder="Enter course name"
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCourse(); } }}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Input
+                    value={newCourseDuration}
+                    onChange={(e) => setNewCourseDuration(e.target.value)}
+                    placeholder="Duration (e.g. 6 months)"
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCourse(); } }}
+                  />
+                </div>
+              </div>
+              <div className="mt-2">
                 <Button onClick={addCourse} type="button">
                   <Plus className="h-4 w-4" />
                 </Button>
@@ -539,7 +565,7 @@ export default function CreateInstitute() {
                 <div className="flex flex-wrap gap-2 mt-4">
                   {courses.map((course, index) => (
                     <Badge key={index} variant="secondary" className="gap-2">
-                      {course}
+                      {course.name}{course.duration ? ` • ${course.duration}` : ''}
                       <X 
                         className="h-3 w-3 cursor-pointer" 
                         onClick={() => removeCourse(index)}
@@ -585,6 +611,16 @@ export default function CreateInstitute() {
 
       case 4:
         return (
+                  <PaymentSection 
+          entityType="institute"
+          onPaymentComplete={handlePaymentComplete}
+          isRequired={true}
+          isSubmitting={isSubmitting}
+        />
+        )
+
+      case 5:
+        return (
           <div className="space-y-6">
             <div className="text-center">
               <h3 className="text-xl font-bold text-foreground mb-2">Review Your Information</h3>
@@ -611,6 +647,59 @@ export default function CreateInstitute() {
                   <div>
                     <h4 className="font-semibold text-foreground">Courses & Programs</h4>
                     <p className="text-muted-foreground">{courses.length} courses added</p>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground">Payment Status</h4>
+                    <p className={`${paymentCompleted ? 'text-green-600' : 'text-red-600'} font-medium`}>
+                      {paymentCompleted ? '✓ Payment Completed' : '✗ Payment Required'}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Terms and Conditions */}
+            <Card className={`transition-all duration-200 ${acceptTerms ? 'border-marketplace-success/30 bg-marketplace-success/5' : ''}`}>
+              <CardContent className="p-6">
+                <div className="space-y-4">
+                  <div className="flex items-start space-x-3">
+                    <input
+                      type="checkbox"
+                      id="terms"
+                      checked={acceptTerms}
+                      onChange={(e) => setAcceptTerms(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <div className="space-y-2">
+                      <Label htmlFor="terms" className="text-sm font-medium cursor-pointer">
+                        I accept the Terms and Conditions <span className="text-destructive">*</span>
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        By creating this institute profile, you agree to our terms of service, 
+                        privacy policy, and educational institution guidelines. You confirm that all information 
+                        provided is accurate and that you have the right to represent this institute.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowTerms(true)}
+                      className="flex items-center gap-2 text-xs"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Read Full Terms & Policies
+                    </Button>
+                    
+                    {acceptTerms && (
+                      <div className="flex items-center gap-2 text-marketplace-success text-sm">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>Terms Accepted</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -727,7 +816,11 @@ export default function CreateInstitute() {
             </Button>
             
             {currentStep === steps.length - 1 ? (
-              <Button className="bg-primary hover:bg-primary/90 w-full sm:w-auto order-1 sm:order-2" onClick={handleSubmit} disabled={isSubmitting}>
+              <Button 
+                className="bg-primary hover:bg-primary/90 w-full sm:w-auto order-1 sm:order-2" 
+                onClick={handleSubmit} 
+                disabled={isSubmitting || !paymentCompleted || !acceptTerms}
+              >
                 {isSubmitting ? 'Submitting...' : 'Submit Institute'}
               </Button>
             ) : (
@@ -758,6 +851,14 @@ export default function CreateInstitute() {
         onCropComplete={handleBannerCropComplete}
         aspectRatio={2}
         title="Crop Banner"
+      />
+
+      {/* Terms and Policies Popup */}
+      <TermsAndPolicies
+        isOpen={showTerms}
+        onClose={() => setShowTerms(false)}
+        onAccept={handleAcceptTerms}
+        title="Institute Creation Terms"
       />
     </div>
   )

@@ -14,6 +14,7 @@ import CreateShop from "./pages/ShopWizard";
 import Shop from "./pages/Shop";
 import EditShop from "./pages/EditShop";
 import Education from "./pages/Education";
+import Hospital from "./pages/Hospital";
 import Feed from "./pages/Feed";
 import Marketplace from "./pages/Marketplace";
 import NotFound from "./pages/NotFound";
@@ -27,7 +28,10 @@ import CreateInstitute from "./pages/education/CreateInstitute";
 import EditInstitute from "./pages/education/EditInstitute";
 import StudentDashboard from "./pages/education/StudentDashboard";
 import InstituteDashboard from "./pages/education/InstituteDashboard";
+import InstituteStudentDashboard from "./pages/education/InstituteStudentDashboard";
 import Courses from "./pages/education/Courses";
+import ApplyNow from "./pages/education/ApplyNow";
+import MyApplications from "./pages/education/MyApplications";
 
 // Feed Module Pages
 import PostDetail from "./pages/feed/PostDetail";
@@ -44,7 +48,18 @@ import CreateProduct from "./pages/marketplace/CreateProduct";
 import EditProduct from "./pages/marketplace/EditProduct";
 import UserDashboard from "./pages/marketplace/UserDashboard";
 
+
+
 // Store Module Pages
+// Hospital Module Pages
+import HospitalDetail from "./pages/hospital/HospitalDetail";
+import HospitalDashboard from "./pages/hospital/HospitalDashboard";
+import Technicalities from "./pages/hospital/Technicalities";
+import CreateHospital from "./pages/hospital/CreateHospital";
+import EditHospital from "./pages/hospital/EditHospital";
+import PatientDashboard from "./pages/hospital/PatientDashboard";
+import HospitalApplyNow from "./pages/hospital/ApplyNow";
+import HospitalPatientDashboard from "./pages/hospital/HospitalPatientDashboard";
 import ShopDetail from "./pages/store/ShopDetail";
 
 const queryClient = new QueryClient();
@@ -69,11 +84,25 @@ const App = () => (
           <Route path="/education" element={<Education />} />
           <Route path="/education/institute/:id" element={<InstituteDetail />} />
           <Route path="/education/institute/:id/dashboard" element={<InstituteDashboard />} />
+          <Route path="/education/institute/:id/student-dashboard" element={<InstituteStudentDashboard />} />
           <Route path="/education/institute/:id/courses" element={<Courses />} />
+          <Route path="/education/institute/:id/apply" element={<ApplyNow />} />
           <Route path="/education/create" element={<CreateInstitute />} />
           <Route path="/education/edit/:id" element={<EditInstitute />} />
           <Route path="/education/dashboard" element={<StudentDashboard />} />
           <Route path="/education/institute-dashboard" element={<InstituteDashboard />} />
+          <Route path="/education/applications" element={<MyApplications />} />
+          
+          {/* Hospital Module */}
+          <Route path="/hospital" element={<Hospital />} />
+          <Route path="/hospital/hospital/:id" element={<HospitalDetail />} />
+          <Route path="/hospital/hospital/:id/dashboard" element={<HospitalDashboard />} />
+          <Route path="/hospital/hospital/:id/technicalities" element={<Technicalities />} />
+          <Route path="/hospital/create" element={<CreateHospital />} />
+          <Route path="/hospital/edit/:id" element={<EditHospital />} />
+          <Route path="/hospital/dashboard" element={<PatientDashboard />} />
+          <Route path="/hospital/:id/apply" element={<HospitalApplyNow />} />
+          <Route path="/hospital/:id/patient-dashboard" element={<HospitalPatientDashboard />} />
           
           <Route path="/feed" element={<Feed />} />
           <Route path="/feed/post/:id" element={<PostDetail />} />
@@ -89,6 +118,8 @@ const App = () => (
           <Route path="/marketplace/create" element={<CreateProduct />} />
           <Route path="/marketplace/edit/:productId" element={<EditProduct />} />
           <Route path="/marketplace/dashboard" element={<UserDashboard />} />
+          
+
           
           <Route path="/store/shop/:shopId" element={<ShopDetail />} />
 

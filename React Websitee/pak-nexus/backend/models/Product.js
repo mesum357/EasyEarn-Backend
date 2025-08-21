@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const productSchema = new mongoose.Schema({
   title: { type: String, required: true, trim: true },
   description: { type: String, required: true, trim: true },
+  agentId: { type: String }, // Optional agent ID
   price: { type: Number, required: true },
   priceType: { type: String, enum: ['fixed', 'negotiable', 'free'], default: 'fixed' },
   category: { type: String, required: true },
@@ -18,6 +19,10 @@ const productSchema = new mongoose.Schema({
   ownerPhone: { type: String },
   ownerEmail: { type: String },
   status: { type: String, enum: ['active', 'sold', 'expired'], default: 'active' },
+  approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  approvalNotes: { type: String }, // Admin notes for approval/rejection
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Admin who approved/rejected
+  approvedAt: { type: Date }, // When it was approved/rejected
   tags: [{ type: String }],
   specifications: { type: Map, of: String }, // For additional product details
   contactPreference: { type: String, enum: ['phone', 'email', 'both'], default: 'both' }

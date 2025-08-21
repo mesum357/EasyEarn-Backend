@@ -27,14 +27,14 @@ export default function ShopCard({ shop, index }: ShopCardProps) {
         y: -8,
         transition: { duration: 0.3 }
       }}
-      className="group"
+      className="group relative"
     >
       <Card className="overflow-hidden border-border hover:border-primary/50 transition-all duration-300 hover:shadow-lg hover:shadow-primary/10">
         {/* Shop Image */}
         <div className="relative h-40 sm:h-48 overflow-hidden">
           <motion.img
-            src={shop.shopImage}
-            alt={shop.name}
+            src={shop.shopBanner || shop.shopLogo}
+            alt={shop.shopName}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
             whileHover={{ scale: 1.05 }}
           />
@@ -46,12 +46,12 @@ export default function ShopCard({ shop, index }: ShopCardProps) {
               animate={{ scale: 1 }}
               transition={{ delay: 0.3 + index * 0.1 }}
               className={`px-2 py-1 sm:px-3 sm:py-1 rounded-full text-xs font-medium ${
-                shop.businessType === 'Product Seller'
+                shop.shopType === 'Product Seller'
                   ? 'bg-blue-500/90 text-white'
                   : 'bg-green-500/90 text-white'
               }`}
             >
-              {shop.businessType}
+              {shop.shopType}
             </motion.div>
           </div>
 
@@ -64,7 +64,7 @@ export default function ShopCard({ shop, index }: ShopCardProps) {
               className="bg-black/70 text-white px-2 py-1 rounded-full flex items-center text-xs"
             >
               <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 mr-1" />
-              {shop.rating}
+              {shop.rating || 0}
             </motion.div>
           </div>
         </div>
@@ -86,14 +86,14 @@ export default function ShopCard({ shop, index }: ShopCardProps) {
 
           {/* Shop Name */}
           <h3 className="text-base sm:text-lg font-bold text-foreground mb-2 group-hover:text-primary transition-colors line-clamp-2">
-            {shop.name}
+            {shop.shopName}
           </h3>
 
           {/* Description */}
           <div 
             className="text-xs sm:text-sm text-muted-foreground mb-3 line-clamp-2"
             dangerouslySetInnerHTML={{ 
-              __html: shop.description || '' 
+              __html: shop.shopDescription || '' 
             }}
             style={{ direction: 'ltr' }}
           />
@@ -106,13 +106,13 @@ export default function ShopCard({ shop, index }: ShopCardProps) {
             </div>
             <div className="flex items-center">
               <Badge className="h-3 w-3 mr-1" />
-              <span className="line-clamp-1">{shop.category}</span>
+              <span className="line-clamp-1">{shop.categories?.[0] || 'General'}</span>
             </div>
           </div>
 
           {/* Visit Shop Button */}
           <Button asChild className="w-full rounded-full group/btn h-9 sm:h-10 text-sm sm:text-base">
-            <Link to={`/shop/${shop.id}`}>
+            <Link to={`/shop/${shop._id}`}>
               <span className="group-hover/btn:scale-105 transition-transform">
                 Visit Shop
               </span>

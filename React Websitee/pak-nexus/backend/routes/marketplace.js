@@ -6,6 +6,7 @@ const fs = require('fs');
 const Product = require('../models/Product');
 const { ensureAuthenticated } = require('../middleware/auth');
 const { upload: cloudinaryUpload, cloudinary } = require('../middleware/cloudinary');
+const { generateProductAgentId } = require('../utils/agentIdGenerator');
 
 // File filter for image uploads
 const fileFilter = (req, file, cb) => {
@@ -77,7 +78,7 @@ router.get('/', async (req, res) => {
     // Calculate skip value for pagination
     const skip = (page - 1) * limit;
 
-    const products = await Product.find(filter)
+    const products = await Product.find({ ...filter, approvalStatus: 'approved' }) // Only show approved products
       .populate('owner', 'username fullName email profileImage city')
       .sort(sort)
       .skip(skip)
@@ -108,6 +109,14 @@ router.get('/:id', async (req, res) => {
       .populate('owner', 'username fullName email profileImage city');
 
     if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    
+    // Check if user is owner or admin, or if product is approved
+    const isOwner = req.isAuthenticated() && product.owner.toString() === req.user._id.toString();
+    const isAdmin = req.isAuthenticated() && req.user.isAdmin;
+    
+    if (!isOwner && !isAdmin && product.approvalStatus !== 'approved') {
       return res.status(404).json({ error: 'Product not found' });
     }
 
@@ -187,11 +196,17 @@ router.post('/', ensureAuthenticated, upload.array('images', 10), async (req, re
       owner: req.user._id,
       ownerName: req.user.fullName || req.user.username || req.user.email,
       ownerPhone: ownerPhone || req.user.phone || '',
-      ownerEmail: ownerEmail || req.user.email || ''
+      ownerEmail: ownerEmail || req.user.email || '',
+      // Generate unique Agent ID for the product
+      agentId: generateProductAgentId(title)
     });
 
+    console.log('Creating product with Agent ID:', product.agentId);
     await product.save();
-    res.status(201).json({ product });
+    res.status(201).json({ 
+      message: 'Product created successfully and is pending admin approval',
+      product 
+    });
   } catch (error) {
     console.error('Error creating product:', error);
     res.status(500).json({ error: 'Failed to create product' });
@@ -342,6 +357,21 @@ router.get('/user/my-products', ensureAuthenticated, async (req, res) => {
   } catch (error) {
     console.error('Error fetching user products:', error);
     res.status(500).json({ error: 'Failed to fetch user products' });
+  }
+});
+
+// Get pending products for current user
+router.get('/user/my-pending-products', ensureAuthenticated, async (req, res) => {
+  try {
+    const pendingProducts = await Product.find({ 
+      owner: req.user._id, 
+      approvalStatus: 'pending' 
+    }).sort({ createdAt: -1 });
+    
+    res.json({ pendingProducts });
+  } catch (error) {
+    console.error('Error fetching pending products:', error);
+    res.status(500).json({ error: 'Failed to fetch pending products' });
   }
 });
 

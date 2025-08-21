@@ -3,10 +3,12 @@ import { User, Menu, X } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useState, useEffect } from 'react'
 import { API_BASE_URL } from '../lib/config'
+import Logo from '../assets/Logo.png'
 
 const navigationLinks = [
   { name: 'Store', href: '/store' },
   { name: 'Education', href: '/education' },
+  { name: 'Hospital', href: '/hospital' },
   { name: 'Feed', href: '/feed' },
   { name: 'Marketplace', href: '/marketplace' },
 ]
@@ -152,8 +154,12 @@ export default function Navbar() {
             whileHover={{ scale: 1.05 }}
             className="flex-shrink-0"
           >
-            <Link to="/" className="text-2xl font-bold bg-gradient-to-r from-primary via-blue-600 to-primary bg-clip-text text-transparent">
-              MY Online 
+            <Link to="/" className="flex items-center">
+              <img 
+                src={Logo} 
+                alt="Pakistan Online Logo" 
+                className="h-20 w-auto"
+              />
             </Link>
           </motion.div>
 
@@ -351,7 +357,7 @@ export default function Navbar() {
                 {/* Profile Actions */}
                 <div className="px-4 py-2 space-y-1">
                   <Link
-                    to="/feed/profile"
+                    to={user?.username ? `/feed/profile/${user.username}` : '/feed/profile'}
                     className="flex items-center px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition-colors duration-150"
                     onClick={() => setShowProfileMenu(false)}
                   >
@@ -360,6 +366,9 @@ export default function Navbar() {
                     </svg>
                     My Profile
                   </Link>
+                  
+
+                  
                   <button
                     onClick={handleLogout}
                     className="flex items-center w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-150"

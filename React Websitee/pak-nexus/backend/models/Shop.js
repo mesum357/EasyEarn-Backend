@@ -16,6 +16,7 @@ const shopSchema = new mongoose.Schema({
   city: { type: String, required: true },
   shopType: { type: String, enum: ['Product Seller', 'Service Provider'], required: true },
   shopDescription: { type: String },
+  agentId: { type: String }, // Optional agent ID
   categories: [{ type: String, required: true }],
   
   // Images
@@ -36,6 +37,12 @@ const shopSchema = new mongoose.Schema({
   // Ratings and reviews
   rating: { type: Number, default: 4.5 },
   totalReviews: { type: Number, default: 0 },
+  
+  // Approval Status
+  approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  approvalNotes: { type: String }, // Admin notes for approval/rejection
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Admin who approved/rejected
+  approvedAt: { type: Date }, // When it was approved/rejected
   
   // Owner information
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
