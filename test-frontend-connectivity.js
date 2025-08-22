@@ -192,3 +192,4 @@ async function testFrontendConnectivity() {
 
 // Run the test
 testFrontendConnectivity();
+

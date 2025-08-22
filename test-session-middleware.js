@@ -143,3 +143,4 @@ async function testSessionMiddleware() {
 
 // Run the test
 testSessionMiddleware();
+

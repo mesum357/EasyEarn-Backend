@@ -100,3 +100,4 @@ async function testLoginWithExistingUser() {
 
 // Run the test
 testLoginWithExistingUser();
+

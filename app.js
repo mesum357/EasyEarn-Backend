@@ -44,6 +44,19 @@ console.log(`📧 Email sending is ${DISABLE_EMAILS ? 'DISABLED' : 'ENABLED'} fo
 // Trust proxy for Railway deployment (required for secure cookies)
     app.set('trust proxy', 1);
 
+// Test endpoint for CORS debugging
+app.get('/api/test-cors', (req, res) => {
+  console.log('🧪 CORS test endpoint hit');
+  console.log('Origin:', req.headers.origin);
+  console.log('All headers:', req.headers);
+  res.json({ 
+    success: true, 
+    message: 'CORS test successful',
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
@@ -93,12 +106,17 @@ ALLOWED_ORIGINS.forEach(origin => console.log(` - ${origin}`));
 // Configure CORS with proper settings for credentials
 app.use(cors({
   origin: (origin, callback) => {
+    console.log(`🔍 CORS check for origin: ${origin}`);
     if (!origin) {
+      console.log('✅ Allowing request with no origin (server-to-server)');
       return callback(null, true);
     }
     if (ALLOWED_ORIGINS.includes(origin)) {
+      console.log(`✅ Allowing origin: ${origin}`);
       return callback(null, true);
     }
+    console.log(`❌ Blocking origin: ${origin}`);
+    console.log('Allowed origins:', ALLOWED_ORIGINS);
     return callback(new Error('Origin not allowed'));
   },
   credentials: true,
@@ -111,6 +129,22 @@ app.use(cors({
 
 // Handle preflight OPTIONS requests
 app.options('*', cors());
+
+// Add CORS headers to all responses as a fallback
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  console.log(`🌐 Request from origin: ${origin}`);
+  
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.header('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
+  next();
+});
 
 // Single MongoStore instance
 const sessionStore = MongoStore.create({
@@ -1618,6 +1652,9 @@ app.post('/api/admin/participations/:id/reject', async (req, res) => {
 
 // Admin: Get all deposits with pagination
 app.get('/api/admin/deposits', async (req, res) => {
+  console.log('💰 Admin deposits request received');
+  console.log('Origin:', req.headers.origin);
+  console.log('Query:', req.query);
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
@@ -1835,6 +1872,9 @@ app.put('/api/admin/deposits/:id/reject', async (req, res) => {
 
 // Admin: Get all users with pagination
 app.get('/api/admin/users', async (req, res) => {
+  console.log('👥 Admin users request received');
+  console.log('Origin:', req.headers.origin);
+  console.log('Query:', req.query);
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
@@ -2041,6 +2081,8 @@ app.post('/api/admin/notifications', async (req, res) => {
 
 // Admin: Get all notifications
 app.get('/api/admin/notifications', async (req, res) => {
+  console.log('🔔 Admin notifications request received');
+  console.log('Origin:', req.headers.origin);
   try {
     const notifications = await Notification.find({}).sort({ createdAt: -1 });
     res.json({ success: true, notifications });
@@ -2051,6 +2093,9 @@ app.get('/api/admin/notifications', async (req, res) => {
 
 // Admin: Get dashboard statistics
 app.get('/api/admin/dashboard-stats', async (req, res) => {
+  console.log('📊 Admin dashboard stats request received');
+  console.log('Origin:', req.headers.origin);
+  console.log('User-Agent:', req.headers['user-agent']);
   try {
     // Get current date and calculate date ranges
     const now = new Date();
