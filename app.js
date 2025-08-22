@@ -42,7 +42,47 @@ const DISABLE_EMAILS = process.env.DISABLE_EMAILS === 'true' || true; // Current
 console.log(`📧 Email sending is ${DISABLE_EMAILS ? 'DISABLED' : 'ENABLED'} for testing`);
 
 // Trust proxy for Railway deployment (required for secure cookies)
-    app.set('trust proxy', 1);
+app.set('trust proxy', 1);
+
+// CORS Configuration - DEFINED EARLY
+const ALLOWED_ORIGINS = [
+  // Production URLs - Vercel
+  'https://easyearn-frontend4.vercel.app',
+  'https://easyearn-frontend8.vercel.app',
+  'https://easyearn-frontend5-5s029wzy7-ahmads-projects-9a0217f0.vercel.app',
+  'https://easyearn-adminpanel2.vercel.app',
+  // Railway deployments
+  'https://caring-meat-production.up.railway.app',
+  'https://easyearn-frontend-production.up.railway.app',
+  'https://easyearn-frontend-production-760e.up.railway.app',
+  'https://easyearn-frontend-production-5a04.up.railway.app',
+  'https://gleaming-miracle-production.up.railway.app',
+  'https://easyearn-adminpanel-production.up.railway.app',
+  // Railway backend (for testing)
+  'https://easyearn-backend-production-01ac.up.railway.app',
+  // Custom domain
+  'https://kingeasyearn.com',
+  // Development origins
+  'http://localhost:3000',
+  'http://localhost:3005',
+  'http://localhost:5173',
+  'http://localhost:8080',
+  'http://localhost:8081',
+  // Network testing
+  'http://127.0.0.1:8080',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3005',
+  'http://192.168.1.7:8080',
+  'http://192.168.1.7:3000',
+  // VPS IP addresses
+  'http://31.97.39.46:8080',
+  'http://31.97.39.46:3000',
+];
+
+// Log allowed origins for debugging
+console.log(`🚀 CORS configured with ${ALLOWED_ORIGINS.length} allowed origins:`);
+ALLOWED_ORIGINS.forEach(origin => console.log(`   - ${origin}`));
 
 // Test endpoint for CORS debugging
 app.get('/api/test-cors', (req, res) => {
@@ -53,6 +93,7 @@ app.get('/api/test-cors', (req, res) => {
   // Explicitly set CORS headers for this endpoint
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for test endpoint: ${origin}`);
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
@@ -89,6 +130,10 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
     res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
     res.setHeader('Access-Control-Max-Age', '86400');
+  } else if (origin) {
+    console.log(`❌ EARLY CORS - Origin not allowed: ${origin}`);
+  } else {
+    console.log(`ℹ️ EARLY CORS - No origin header present`);
   }
   
   // Handle preflight requests immediately
@@ -100,48 +145,6 @@ app.use((req, res, next) => {
   
   next();
 });
-
-// Simplified CORS configuration
-const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-  : [
-  // Production URLs - Vercel
-  'https://easyearn-frontend4.vercel.app',
-      'https://easyearn-frontend8.vercel.app',
-      'https://easyearn-frontend5-5s029wzy7-ahmads-projects-9a0217f0.vercel.app',
-  'https://easyearn-adminpanel2.vercel.app',
-      // Railway deployments
-      'https://caring-meat-production.up.railway.app',
-      'https://easyearn-frontend-production.up.railway.app',
-      'https://easyearn-frontend-production-760e.up.railway.app',
-      'https://easyearn-frontend-production-5a04.up.railway.app',
-      'https://gleaming-miracle-production.up.railway.app',
-      'https://easyearn-adminpanel-production.up.railway.app',
-      // Railway backend (for testing)
-      'https://easyearn-backend-production-01ac.up.railway.app',
-  // Custom domain
-      'https://kingeasyearn.com',
-  // Development origins
-  'http://localhost:3000',
-  'http://localhost:3005',
-  'http://localhost:5173',
-  'http://localhost:8080',
-  'http://localhost:8081',
-  // Network testing
-  'http://127.0.0.1:8080',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:3005',
-  'http://192.168.1.7:8080',
-  'http://192.168.1.7:3000',
-  // VPS IP addresses
-  'http://31.97.39.46:8080',
-  'http://31.97.39.46:3000',
-];
-
-// Log allowed origins for debugging
-console.log(`CORS configured with ${ALLOWED_ORIGINS.length} allowed origins:`);
-ALLOWED_ORIGINS.forEach(origin => console.log(` - ${origin}`));
 
 // Configure CORS with proper settings for credentials
 app.use(cors({
