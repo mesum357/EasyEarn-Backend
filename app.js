@@ -1648,30 +1648,62 @@ app.put('/api/deposits/:id/confirm', ensureAuthenticated, async (req, res) => {
       const previousBalance = user.balance;
       
       if (isFirstDeposit && isMinimumAmount) {
-        // First deposit of $10+ unlocks tasks but doesn't add to balance
+        // First deposit of $10+ unlocks tasks and deducts $10 from balance
         user.hasDeposited = true;
-        // Balance calculation: total deposits - 10
+        // Calculate balance: (total deposits - 10) - total withdrawals
         const totalConfirmedDeposits = await Deposit.aggregate([
           { $match: { userId: deposit.userId, status: 'confirmed' } },
           { $group: { _id: null, total: { $sum: '$amount' } } }
         ]);
         const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
-        console.log(`✅ FIRST DEPOSIT: Tasks unlocked! Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        
+        // Get total active withdrawals (completed + pending + processing)
+        const totalWithdrawn = await WithdrawalRequest.aggregate([
+          { $match: { userId: deposit.userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+        
+        user.balance = Math.max(0, totalDeposits - 10 - totalWithdrawnAmount);
+        console.log(`✅ FIRST DEPOSIT: Tasks unlocked! Balance = (${totalDeposits} - 10) - ${totalWithdrawnAmount} = $${user.balance}`);
       } else if (!isFirstDeposit) {
-        // Subsequent deposits add to balance normally
+        // Subsequent deposits add to balance WITHOUT $10 deduction
         const totalConfirmedDeposits = await Deposit.aggregate([
           { $match: { userId: deposit.userId, status: 'confirmed' } },
           { $group: { _id: null, total: { $sum: '$amount' } } }
         ]);
         const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
+        
+        // Get total active withdrawals (completed + pending + processing)
+        const totalWithdrawn = await WithdrawalRequest.aggregate([
+          { $match: { userId: deposit.userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+        
+        // NEW LOGIC: Only deduct $10 from the FIRST deposit, not from total
+        const firstDepositDeduction = 10; // Only deduct $10 once
+        user.balance = Math.max(0, totalDeposits - firstDepositDeduction - totalWithdrawnAmount);
         user.hasDeposited = true; // Ensure tasks remain unlocked
-        console.log(`✅ SUBSEQUENT DEPOSIT: Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        console.log(`✅ SUBSEQUENT DEPOSIT: Balance = (${totalDeposits} - ${firstDepositDeduction}) - ${totalWithdrawnAmount} = $${user.balance}`);
       } else {
         // First deposit but less than $10 - doesn't unlock tasks
         console.log(`⚠️ FIRST DEPOSIT TOO SMALL: $${deposit.amount} < $10, tasks remain locked`);
-        user.balance += deposit.amount; // Add to balance normally
+        // Use proper balance calculation for small deposits too
+        const totalConfirmedDeposits = await Deposit.aggregate([
+          { $match: { userId: deposit.userId, status: 'confirmed' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
+        
+        const totalWithdrawn = await WithdrawalRequest.aggregate([
+          { $match: { userId: deposit.userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+        
+        user.balance = Math.max(0, totalDeposits - 10 - totalWithdrawnAmount);
+        console.log(`✅ SMALL DEPOSIT: Balance = (${totalDeposits} - 10) - ${totalWithdrawnAmount} = $${user.balance}`);
       }
       
       await user.save();
@@ -1958,30 +1990,62 @@ app.put('/api/admin/deposits/:id/confirm', async (req, res) => {
       const previousBalance = user.balance;
       
       if (isFirstDeposit && isMinimumAmount) {
-        // First deposit of $10+ unlocks tasks but doesn't add to balance
+        // First deposit of $10+ unlocks tasks and deducts $10 from balance
         user.hasDeposited = true;
-        // Balance calculation: total deposits - 10
+        // Calculate balance: (total deposits - 10) - total withdrawals
         const totalConfirmedDeposits = await Deposit.aggregate([
           { $match: { userId: deposit.userId, status: 'confirmed' } },
           { $group: { _id: null, total: { $sum: '$amount' } } }
         ]);
         const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
-        console.log(`✅ ADMIN FIRST DEPOSIT: Tasks unlocked! Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        
+        // Get total active withdrawals (completed + pending + processing)
+        const totalWithdrawn = await WithdrawalRequest.aggregate([
+          { $match: { userId: deposit.userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+        
+        user.balance = Math.max(0, totalDeposits - 10 - totalWithdrawnAmount);
+        console.log(`✅ ADMIN FIRST DEPOSIT: Tasks unlocked! Balance = (${totalDeposits} - 10) - ${totalWithdrawnAmount} = $${user.balance}`);
       } else if (!isFirstDeposit) {
-        // Subsequent deposits add to balance normally
+        // Subsequent deposits add to balance WITHOUT $10 deduction
         const totalConfirmedDeposits = await Deposit.aggregate([
           { $match: { userId: deposit.userId, status: 'confirmed' } },
           { $group: { _id: null, total: { $sum: '$amount' } } }
         ]);
         const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
+        
+        // Get total active withdrawals (completed + pending + processing)
+        const totalWithdrawn = await WithdrawalRequest.aggregate([
+          { $match: { userId: deposit.userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+        
+        // NEW LOGIC: Only deduct $10 from the FIRST deposit, not from total
+        const firstDepositDeduction = 10; // Only deduct $10 once
+        user.balance = Math.max(0, totalDeposits - firstDepositDeduction - totalWithdrawnAmount);
         user.hasDeposited = true; // Ensure tasks remain unlocked
-        console.log(`✅ ADMIN SUBSEQUENT DEPOSIT: Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        console.log(`✅ ADMIN SUBSEQUENT DEPOSIT: Balance = (${totalDeposits} - ${firstDepositDeduction}) - ${totalWithdrawnAmount} = $${user.balance}`);
       } else {
         // First deposit but less than $10 - doesn't unlock tasks
         console.log(`⚠️ ADMIN FIRST DEPOSIT TOO SMALL: $${deposit.amount} < $10, tasks remain locked`);
-        user.balance += deposit.amount; // Add to balance normally
+        // Use proper balance calculation for small deposits too
+        const totalConfirmedDeposits = await Deposit.aggregate([
+          { $match: { userId: deposit.userId, status: 'confirmed' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
+        
+        const totalWithdrawn = await WithdrawalRequest.aggregate([
+          { $match: { userId: deposit.userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+        
+        user.balance = Math.max(0, totalDeposits - 10 - totalWithdrawnAmount);
+        console.log(`✅ ADMIN SMALL DEPOSIT: Balance = (${totalDeposits} - 10) - ${totalWithdrawnAmount} = $${user.balance}`);
       }
       
       await user.save();
@@ -3351,6 +3415,29 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
     const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
     console.log('Total deposit amount:', totalDepositAmount);
 
+    // Check total withdrawn amount (including pending/processing)
+    const totalWithdrawn = await WithdrawalRequest.aggregate([
+      { $match: { userId: userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+    console.log('Total withdrawn amount:', totalWithdrawnAmount);
+
+    // Calculate actual available balance: (total deposits - 10) - total withdrawn
+    const calculatedBalance = Math.max(0, totalDepositAmount - 10 - totalWithdrawnAmount);
+    console.log('Calculated balance:', calculatedBalance, '(deposits:', totalDepositAmount, '- 10 - withdrawn:', totalWithdrawnAmount, ')');
+
+    // Calculate user balance using utility function
+    const balanceInfo = await calculateUserBalance(userId);
+    console.log('Balance calculation:', balanceInfo);
+
+    // Update user's balance if it's different from calculated balance
+    if (user.balance !== balanceInfo.calculatedBalance) {
+      console.log('Updating user balance from', user.balance, 'to', balanceInfo.calculatedBalance);
+      user.balance = balanceInfo.calculatedBalance;
+      await user.save();
+    }
+
     // Check lucky draw participations in current 15-day period (only approved ones)
     const luckyDrawInPeriod = await Participation.countDocuments({
       user: userId,
@@ -3395,7 +3482,7 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
 
     const response = {
       success: true,
-      requirement: {
+      requirements: {
         periodStart: requirement.periodStart,
         periodEnd: requirement.periodEnd,
         requirements: requirement.requirements,
@@ -3425,8 +3512,8 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
     const userId = req.user._id;
 
     // Validate amount
-    if (!amount || amount < 20) {
-      return res.status(400).json({ success: false, error: 'Minimum withdrawal amount is $20' });
+    if (!amount || amount < 1) {
+      return res.status(400).json({ success: false, error: 'Minimum withdrawal amount is $1' });
     }
 
     // Check user balance
@@ -3465,9 +3552,32 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
 
     await withdrawalRequest.save();
 
-    // Deduct amount from user balance
-    user.balance -= amount;
+    // Recalculate user balance properly: (total deposits - 10) - total withdrawn (including new request)
+    const totalDeposits = await Deposit.aggregate([
+      { $match: { userId: userId, status: 'confirmed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
+    
+    // Include the new withdrawal request in the calculation
+    const totalWithdrawn = await WithdrawalRequest.aggregate([
+      { $match: { userId: userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+    
+    const newBalance = Math.max(0, totalDepositAmount - 10 - totalWithdrawnAmount);
+    user.balance = newBalance;
     await user.save();
+    
+    console.log('Balance recalculated after withdrawal request:', {
+      userId: userId,
+      totalDeposits: totalDepositAmount,
+      totalWithdrawn: totalWithdrawnAmount,
+      newBalance: newBalance,
+      withdrawalAmount: amount,
+      note: 'Includes pending/processing withdrawals in available balance calculation'
+    });
 
     res.json({
       success: true,
@@ -3864,22 +3974,51 @@ app.put('/api/admin/task-submissions/:submissionId/review', async (req, res) => 
 
 // ==================== ADMIN WITHDRAWAL REQUEST ENDPOINTS ====================
 
+// Handle preflight requests for withdrawal requests
+app.options('/api/admin/withdrawal-requests', (req, res) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  res.status(200).end();
+});
+
 // Get all withdrawal requests (for admin)
 app.get('/api/admin/withdrawal-requests', async (req, res) => {
   try {
+    console.log('💰 Admin withdrawal requests request received');
+    console.log('Origin:', req.headers.origin);
+    
+    // Explicitly set CORS headers for admin endpoints
+    const origin = req.headers.origin;
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+      console.log(`✅ Setting CORS headers for admin withdrawal requests: ${origin}`);
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+      res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+    }
+    
     const withdrawalRequests = await WithdrawalRequest.find({})
       .populate('userId', 'username email balance')
       .sort({ createdAt: -1 });
+
+    console.log(`✅ Found ${withdrawalRequests.length} withdrawal requests`);
 
     res.json({
       success: true,
       withdrawalRequests: withdrawalRequests.map(request => ({
         id: request._id,
         user: {
-          id: request.userId._id,
-          username: request.userId.username,
-          email: request.userId.email,
-          balance: request.userId.balance
+          id: request.userId?._id || 'N/A',
+          username: request.userId?.username || 'Unknown User',
+          email: request.userId?.email || 'No Email',
+          balance: request.userId?.balance || 0
         },
         amount: request.amount,
         walletAddress: request.walletAddress,
@@ -3895,11 +4034,40 @@ app.get('/api/admin/withdrawal-requests', async (req, res) => {
   }
 });
 
+// Handle preflight requests for withdrawal request processing
+app.options('/api/admin/withdrawal-requests/:requestId/process', (req, res) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  res.status(200).end();
+});
+
 // Process withdrawal request (approve/reject) - for admin
 app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) => {
   try {
     const { requestId } = req.params;
     const { status, notes } = req.body;
+    
+    console.log('🔧 Admin withdrawal request processing received');
+    console.log('Request ID:', requestId);
+    console.log('Status:', status);
+    console.log('Notes:', notes);
+    
+    // Explicitly set CORS headers for admin endpoints
+    const origin = req.headers.origin;
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+      console.log(`✅ Setting CORS headers for admin withdrawal processing: ${origin}`);
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+      res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+    }
 
     if (!['completed', 'rejected'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Invalid status' });
@@ -3917,13 +4085,34 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
     withdrawalRequest.processedAt = new Date();
     withdrawalRequest.notes = notes;
 
-    // If rejected, refund the amount to user's balance
-    if (status === 'rejected') {
-      const user = await User.findById(withdrawalRequest.userId._id);
-      if (user) {
-        user.balance += withdrawalRequest.amount;
-        await user.save();
-      }
+    // Recalculate user balance properly after status change
+    const user = await User.findById(withdrawalRequest.userId._id);
+    if (user) {
+      // Calculate balance: (total deposits - 10) - total withdrawn
+      const totalDeposits = await Deposit.aggregate([
+        { $match: { userId: user._id, status: 'confirmed' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+      const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
+      
+      const totalWithdrawn = await WithdrawalRequest.aggregate([
+        { $match: { userId: user._id, status: { $in: ['completed', 'pending', 'processing'] } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+      const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+      
+      const newBalance = Math.max(0, totalDepositAmount - 10 - totalWithdrawnAmount);
+      user.balance = newBalance;
+      await user.save();
+      
+      console.log('Balance recalculated after admin processing:', {
+        userId: user._id,
+        withdrawalId: requestId,
+        status: status,
+        totalDeposits: totalDepositAmount,
+        totalWithdrawn: totalWithdrawnAmount,
+        newBalance: newBalance
+      });
     }
 
     await withdrawalRequest.save();
@@ -4264,9 +4453,18 @@ app.post('/api/admin/fix-user-balances', async (req, res) => {
           console.log(`   ✅ First deposit(s) totaling $${totalDeposits} - tasks unlocked, balance = $0`);
         } else {
           // Total deposits more than $10 - first $10 unlocks tasks, rest goes to balance
-          user.balance = totalDeposits - 10;
+          // BUT we need to subtract withdrawals too!
+          const totalWithdrawn = await WithdrawalRequest.aggregate([
+            { $match: { userId: user._id, status: { $in: ['completed', 'pending', 'processing'] } } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+          ]);
+          const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+          
+          // NEW LOGIC: Only deduct $10 once (from first deposit), not from total
+          const firstDepositDeduction = 10;
+          user.balance = Math.max(0, totalDeposits - firstDepositDeduction - totalWithdrawnAmount);
           user.hasDeposited = true;
-          console.log(`   ✅ Total deposits $${totalDeposits} - tasks unlocked, balance = $${totalDeposits} - $10 = $${user.balance}`);
+          console.log(`   ✅ Total deposits $${totalDeposits} - tasks unlocked, balance = (${totalDeposits} - ${firstDepositDeduction}) - ${totalWithdrawnAmount} = $${user.balance}`);
         }
         
         totalDepositsProcessed += totalDeposits;
@@ -4312,5 +4510,77 @@ app.post('/api/admin/fix-user-balances', async (req, res) => {
       error: 'Failed to fix user balances',
       details: error.message
     });
+  }
+});
+
+// Utility function to calculate user balance consistently
+async function calculateUserBalance(userId) {
+  try {
+    // Calculate balance: (total confirmed deposits - 10) - total withdrawn (including pending/processing)
+    // NEW LOGIC: Only deduct $10 once (from first deposit), not from total
+    const totalDeposits = await Deposit.aggregate([
+      { $match: { userId: userId, status: 'confirmed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
+    
+    // Include pending and processing withdrawals in available balance calculation
+    const totalWithdrawn = await WithdrawalRequest.aggregate([
+      { $match: { userId: userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+    
+    // NEW LOGIC: Only deduct $10 once (from first deposit), not from total
+    const firstDepositDeduction = 10;
+    const calculatedBalance = Math.max(0, totalDepositAmount - firstDepositDeduction - totalWithdrawnAmount);
+    
+    return {
+      totalDeposits: totalDepositAmount,
+      totalWithdrawn: totalWithdrawnAmount,
+      calculatedBalance: calculatedBalance
+    };
+  } catch (error) {
+    console.error('Error calculating user balance:', error);
+    return { totalDeposits: 0, totalWithdrawn: 0, calculatedBalance: 0 };
+  }
+}
+
+// Admin endpoint to recalculate all user balances
+app.post('/api/admin/recalculate-balances', async (req, res) => {
+  try {
+    console.log('🔄 Admin requested balance recalculation for all users');
+    
+    const users = await User.find({});
+    let updatedCount = 0;
+    let totalUsers = users.length;
+    
+    for (const user of users) {
+      try {
+        const balanceInfo = await calculateUserBalance(user._id);
+        
+        if (user.balance !== balanceInfo.calculatedBalance) {
+          console.log(`Updating user ${user.username} balance from $${user.balance} to $${balanceInfo.calculatedBalance}`);
+          user.balance = balanceInfo.calculatedBalance;
+          await user.save();
+          updatedCount++;
+        }
+      } catch (error) {
+        console.error(`Error updating balance for user ${user._id}:`, error);
+      }
+    }
+    
+    console.log(`✅ Balance recalculation completed. Updated ${updatedCount}/${totalUsers} users.`);
+    
+    res.json({
+      success: true,
+      message: `Balance recalculation completed. Updated ${updatedCount}/${totalUsers} users.`,
+      updatedCount,
+      totalUsers
+    });
+    
+  } catch (error) {
+    console.error('Error recalculating balances:', error);
+    res.status(500).json({ success: false, error: 'Failed to recalculate balances' });
   }
 });

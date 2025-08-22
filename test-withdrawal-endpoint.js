@@ -1,85 +1,59 @@
 const axios = require('axios');
 
-const BASE_URL = 'http://localhost:3005';
-
 async function testWithdrawalEndpoint() {
-  console.log('🧪 Testing Withdrawal Requirements Endpoint...\n');
-
   try {
-    // Step 1: Test if backend is running
-    console.log('1. Testing backend connectivity...');
-    try {
-      const healthResponse = await axios.get(`${BASE_URL}/health`);
-      console.log('✅ Backend is running');
-      console.log('Health status:', healthResponse.data);
-    } catch (error) {
-      console.log('❌ Backend not accessible:', error.message);
-      return;
-    }
-
-    // Step 2: Register a test user
-    console.log('\n2. Registering a test user...');
-    const testEmail = `withdrawaltest${Date.now()}@example.com`;
-    const registrationResponse = await axios.post(`${BASE_URL}/register`, {
-      username: testEmail,
-      password: 'password123',
-      confirmPassword: 'password123',
-      email: testEmail
+    console.log('🧪 TESTING ADMIN WITHDRAWAL REQUESTS ENDPOINT...\n');
+    
+    const baseURL = 'http://localhost:3005';
+    const endpoint = '/api/admin/withdrawal-requests';
+    
+    console.log(`📍 Testing endpoint: ${baseURL}${endpoint}`);
+    console.log('=====================================\n');
+    
+    // Test GET request
+    console.log('📤 Sending GET request...');
+    const response = await axios.get(`${baseURL}${endpoint}`, {
+      headers: {
+        'Origin': 'http://localhost:3000',
+        'Content-Type': 'application/json'
+      }
     });
     
-    console.log('✅ Registration successful');
-
-    // Step 3: Login the user
-    console.log('\n3. Logging in the user...');
-    const loginResponse = await axios.post(`${BASE_URL}/login`, {
-      username: testEmail,
-      password: 'password123'
-    }, {
-      withCredentials: true
-    });
+    console.log('✅ Response received successfully!');
+    console.log(`   Status: ${response.status}`);
+    console.log(`   Success: ${response.data.success}`);
+    console.log(`   Withdrawal Requests Count: ${response.data.withdrawalRequests?.length || 0}`);
     
-    console.log('✅ Login successful');
-
-    // Step 4: Test withdrawal requirements endpoint
-    console.log('\n4. Testing withdrawal requirements endpoint...');
-    try {
-      const requirementsResponse = await axios.get(`${BASE_URL}/api/withdrawal-requirements`, {
-        withCredentials: true
-      });
-      
-      console.log('✅ Withdrawal requirements endpoint working!');
-      console.log('Response:', JSON.stringify(requirementsResponse.data, null, 2));
+    if (response.data.withdrawalRequests && response.data.withdrawalRequests.length > 0) {
+      console.log('\n📋 SAMPLE WITHDRAWAL REQUEST:');
+      const sample = response.data.withdrawalRequests[0];
+      console.log(`   ID: ${sample.id}`);
+      console.log(`   User: ${sample.user.username} (${sample.user.email})`);
+      console.log(`   Amount: $${sample.amount}`);
+      console.log(`   Status: ${sample.status}`);
+      console.log(`   Wallet: ${sample.walletAddress}`);
+    }
+    
+    console.log('\n🎉 Endpoint test completed successfully!');
+    
     } catch (error) {
-      console.log('❌ Withdrawal requirements endpoint failed:');
-      console.log('Status:', error.response?.status);
-      console.log('Error:', error.response?.data);
-      console.log('Message:', error.message);
+    console.error('❌ Test failed:', error.message);
+    
+    if (error.response) {
+      console.error('   Response status:', error.response.status);
+      console.error('   Response data:', error.response.data);
+    } else if (error.request) {
+      console.error('   No response received');
+      console.error('   Request details:', error.request);
     }
-
-    // Step 5: Test withdrawal history endpoint
-    console.log('\n5. Testing withdrawal history endpoint...');
-    try {
-      const historyResponse = await axios.get(`${BASE_URL}/api/withdrawal-history`, {
-        withCredentials: true
-      });
-      
-      console.log('✅ Withdrawal history endpoint working!');
-      console.log('Response:', JSON.stringify(historyResponse.data, null, 2));
-    } catch (error) {
-      console.log('❌ Withdrawal history endpoint failed:');
-      console.log('Status:', error.response?.status);
-      console.log('Error:', error.response?.data);
-      console.log('Message:', error.message);
-    }
-
-    console.log('\n🎉 Withdrawal endpoint test completed!');
-
-  } catch (error) {
-    console.error('❌ Test failed:', error.response?.data || error.message);
-    if (error.response?.status) {
-      console.error('Status:', error.response.status);
-    }
+    
+    console.error('\n💡 Troubleshooting tips:');
+    console.error('   1. Make sure the backend is running on port 3005');
+    console.error('   2. Check if there are any CORS issues');
+    console.error('   3. Verify the endpoint URL is correct');
   }
 }
 
+// Run the test
+console.log('🚀 Starting withdrawal endpoint test...\n');
 testWithdrawalEndpoint(); 
