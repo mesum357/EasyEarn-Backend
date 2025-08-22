@@ -64,6 +64,8 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
       'https://easyearn-frontend-production-5a04.up.railway.app',
       'https://gleaming-miracle-production.up.railway.app',
       'https://easyearn-adminpanel-production.up.railway.app',
+      // Railway backend (for testing)
+      'https://easyearn-backend-production-01ac.up.railway.app',
   // Custom domain
       'https://kingeasyearn.com',
   // Development origins
@@ -129,8 +131,8 @@ app.use(session({
   cookie: {
     httpOnly: true,
     maxAge: Number(process.env.SESSION_MAX_AGE || 7 * 24 * 60 * 60 * 1000), // 7 days default
-    secure: process.env.NODE_ENV === 'production' && process.env.FORCE_SECURE_COOKIES === 'true',
-    sameSite: (process.env.NODE_ENV === 'production' && process.env.FORCE_SECURE_COOKIES === 'true') ? 'none' : 'lax',
+    secure: process.env.NODE_ENV === 'production', // Always secure in production
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
     path: '/'
   }
 }));
@@ -144,8 +146,8 @@ console.log('Session configuration:', {
   cookie: {
     httpOnly: true,
     maxAge: Number(process.env.SESSION_MAX_AGE || 7 * 24 * 60 * 60 * 1000),
-    secure: process.env.NODE_ENV === 'production' && process.env.FORCE_SECURE_COOKIES === 'true',
-    sameSite: (process.env.NODE_ENV === 'production' && process.env.FORCE_SECURE_COOKIES === 'true') ? 'none' : 'lax',
+    secure: process.env.NODE_ENV === 'production', // Always secure in production
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
     path: '/'
   }
 });
