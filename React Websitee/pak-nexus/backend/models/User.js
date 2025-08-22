@@ -18,7 +18,14 @@ const userSchema = new mongoose.Schema({
   resetPasswordExpires: { type: Date },
   followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   following: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  isAdmin: { type: Boolean, default: false } // Admin role for entity approval
+  isAdmin: { type: Boolean, default: false }, // Admin role for entity approval
+  // Add missing fields for balance calculation
+  balance: { type: Number, default: 0 },
+  hasDeposited: { type: Boolean, default: false },
+  referredBy: { type: String }, // Referral code of the user who referred this user
+  referralCode: { type: String, unique: true }, // This user's referral code
+  referralCount: { type: Number, default: 0 }, // Number of successful referrals
+  referralEarnings: { type: Number, default: 0 } // Earnings from referrals
 }, { timestamps: true });
 
 // Add plugins

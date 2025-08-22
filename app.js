@@ -205,13 +205,43 @@ app.use((req, res, next) => {
   next();
 });
 
-// Single MongoStore instance
+// Single MongoStore instance with enhanced configuration
 const sessionStore = MongoStore.create({
   mongoUrl: process.env.MONGODB_URI,
   collectionName: 'sessions',
   ttl: 60 * 60 * 24 * 14, // 14 days
   autoRemove: 'native',
-  stringify: false
+  stringify: false,
+  touchAfter: 24 * 3600, // Only update session once per day
+  // Remove crypto configuration to fix encryption issues
+  // crypto: {
+  //   secret: process.env.SESSION_SECRET || 'fallback-secret-key-change-in-production'
+  // }
+});
+
+// Add session store event listeners for debugging
+sessionStore.on('connect', () => {
+  console.log('✅ MongoStore connected successfully');
+});
+
+sessionStore.on('disconnect', () => {
+  console.log('❌ MongoStore disconnected');
+});
+
+sessionStore.on('error', (error) => {
+  console.error('💥 MongoStore error:', error);
+});
+
+sessionStore.on('create', (sessionId) => {
+  console.log('🆕 Session created:', sessionId);
+});
+
+sessionStore.on('destroy', (sessionId) => {
+  console.log('🗑️ Session destroyed:', sessionId);
+});
+
+sessionStore.on('touch', (sessionId) => {
+  console.log('👆 Session touched:', sessionId);
 });
 
 // Session configuration - single source of truth
@@ -224,8 +254,8 @@ app.use(session({
   cookie: {
     httpOnly: true,
     maxAge: Number(process.env.SESSION_MAX_AGE || 7 * 24 * 60 * 60 * 1000), // 7 days default
-    secure: process.env.NODE_ENV === 'production', // Always secure in production
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
+    secure: false, // Set to false for development to allow HTTP cookies
+    sameSite: 'lax', // Use 'lax' for development to allow cross-site cookies
     path: '/'
   }
 }));
@@ -278,9 +308,12 @@ passport.use(new LocalStrategy({
     }
 }));
 
-// Session recovery middleware
+// Session recovery middleware - improved for better persistence
 app.use(async (req, res, next) => {
   try {
+    // Log session state for debugging
+    console.log(`🔍 Session Debug - ID: ${req.sessionID}, Has Session: ${!!req.session}, Session Keys: ${req.session ? Object.keys(req.session).join(', ') : 'none'}`);
+    
     // If session is empty but cookie exists, try to recover
     if (!req.session || Object.keys(req.session).length === 0) {
       const sessionName = process.env.SESSION_NAME || 'easyearn.sid';
@@ -383,6 +416,9 @@ app.get('/test-session', (req, res) => {
   }
   req.session.views++;
   
+  // Set a test value to verify persistence
+  req.session.testValue = `Test value set at ${new Date().toISOString()}`;
+  
   res.json({
     message: 'Session test',
     views: req.session.views,
@@ -391,8 +427,98 @@ app.get('/test-session', (req, res) => {
     cookieSecure: req.session.cookie.secure,
     cookieSameSite: req.session.cookie.sameSite,
     cookies: req.headers.cookie,
-    origin: req.headers.origin
+    origin: req.headers.origin,
+    testValue: req.session.testValue,
+    sessionData: Object.keys(req.session)
   });
+});
+
+// Session persistence test endpoint
+app.get('/test-session-persistence', (req, res) => {
+  const currentSessionID = req.sessionID;
+  const hasPreviousViews = req.session.views || 0;
+  const hasTestValue = req.session.testValue || 'No test value';
+  
+  res.json({
+    message: 'Session persistence test',
+    currentSessionID: currentSessionID,
+    previousViews: hasPreviousViews,
+    testValue: hasTestValue,
+    sessionKeys: Object.keys(req.session),
+    cookies: req.headers.cookie || 'No cookies',
+    sessionExists: !!req.session,
+    sessionModified: req.session ? req.session.cookie.maxAge : 'No session'
+  });
+});
+
+// Session debugging endpoint
+app.get('/debug-session-store', async (req, res) => {
+  try {
+    // Get all sessions from the store
+    const sessions = await new Promise((resolve, reject) => {
+      sessionStore.all((err, sessions) => {
+        if (err) reject(err);
+        else resolve(sessions);
+      });
+    });
+    
+    // Get current session info
+    const currentSession = req.session;
+    const currentSessionID = req.sessionID;
+    
+    res.json({
+      message: 'Session store debug info',
+      currentSessionID: currentSessionID,
+      currentSession: currentSession,
+      totalSessionsInStore: Object.keys(sessions).length,
+      sessionStoreInfo: {
+        hasStore: !!sessionStore,
+        storeType: sessionStore.constructor.name,
+        mongoUrl: process.env.MONGODB_URI ? 'Set' : 'Not set',
+        collectionName: 'sessions'
+      },
+      sampleSessions: Object.keys(sessions).slice(0, 5).map(sid => ({
+        sessionId: sid,
+        hasData: !!sessions[sid],
+        dataKeys: sessions[sid] ? Object.keys(sessions[sid]) : []
+      }))
+    });
+  } catch (error) {
+    console.error('Session store debug error:', error);
+    res.status(500).json({
+      error: 'Failed to get session store info',
+      details: error.message
+    });
+  }
+});
+
+// Session cleanup endpoint (admin only)
+app.post('/api/admin/clear-sessions', async (req, res) => {
+  try {
+    console.log('🧹 ADMIN: Clearing all sessions...');
+    
+    // Clear all sessions from the store
+    await new Promise((resolve, reject) => {
+      sessionStore.clear((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+    
+    console.log('✅ All sessions cleared successfully');
+    res.json({
+      success: true,
+      message: 'All sessions have been cleared',
+      timestamp: new Date()
+    });
+  } catch (error) {
+    console.error('❌ Error clearing sessions:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to clear sessions',
+      details: error.message
+    });
+  }
 });
 
 // Debug endpoint for cross-origin cookie testing (simplified)
@@ -4093,3 +4219,98 @@ const cleanupExpiredLuckyDraws = async () => {
 setInterval(cleanupExpiredLuckyDraws, 60 * 60 * 1000);
 
 // Server startup is handled by the MongoDB connection promise above
+
+// ==================== USER BALANCE RESTORATION ====================
+
+// Admin endpoint to fix all user balances based on confirmed deposits
+app.post('/api/admin/fix-user-balances', async (req, res) => {
+  try {
+    console.log('🔧 ADMIN: Starting user balance fix...');
+    
+    const users = await User.find({});
+    console.log(`📊 Found ${users.length} users to process`);
+    
+    let fixedCount = 0;
+    let totalDepositsProcessed = 0;
+    const results = [];
+    
+    for (const user of users) {
+      console.log(`👤 Processing user: ${user.username} (${user._id})`);
+      console.log(`   Current balance: $${user.balance}`);
+      console.log(`   Current hasDeposited: ${user.hasDeposited}`);
+      
+      const confirmedDeposits = await Deposit.find({
+        userId: user._id,
+        status: 'confirmed'
+      }).sort({ createdAt: 1 });
+      
+      console.log(`   Found ${confirmedDeposits.length} confirmed deposits`);
+      
+      const previousBalance = user.balance;
+      const previousHasDeposited = user.hasDeposited;
+      
+      if (confirmedDeposits.length === 0) {
+        console.log(`   ⚠️ No confirmed deposits - setting balance to $0 and hasDeposited to false`);
+        user.balance = 0;
+        user.hasDeposited = false;
+      } else {
+        const totalDeposits = confirmedDeposits.reduce((sum, deposit) => sum + deposit.amount, 0);
+        console.log(`   Total confirmed deposits: $${totalDeposits}`);
+        
+        if (totalDeposits <= 10) {
+          // First deposit(s) totaling $10 or less - unlocks tasks but balance remains $0
+          user.balance = 0;
+          user.hasDeposited = true;
+          console.log(`   ✅ First deposit(s) totaling $${totalDeposits} - tasks unlocked, balance = $0`);
+        } else {
+          // Total deposits more than $10 - first $10 unlocks tasks, rest goes to balance
+          user.balance = totalDeposits - 10;
+          user.hasDeposited = true;
+          console.log(`   ✅ Total deposits $${totalDeposits} - tasks unlocked, balance = $${totalDeposits} - $10 = $${user.balance}`);
+        }
+        
+        totalDepositsProcessed += totalDeposits;
+      }
+      
+      await user.save();
+      console.log(`   💾 User updated - New balance: $${user.balance}, hasDeposited: ${user.hasDeposited}`);
+      
+      results.push({
+        username: user.username,
+        userId: user._id,
+        previousBalance,
+        newBalance: user.balance,
+        previousHasDeposited,
+        newHasDeposited: user.hasDeposited,
+        confirmedDeposits: confirmedDeposits.length,
+        totalDepositAmount: confirmedDeposits.reduce((sum, deposit) => sum + deposit.amount, 0)
+      });
+      
+      fixedCount++;
+    }
+    
+    console.log(`🎉 Balance fix completed successfully!`);
+    console.log(`📊 Summary:`);
+    console.log(`   Users processed: ${fixedCount}`);
+    console.log(`   Total deposits processed: $${totalDepositsProcessed}`);
+    
+    res.json({
+      success: true,
+      message: 'All user balances have been restored to their correct values',
+      summary: {
+        usersProcessed: fixedCount,
+        totalDepositsProcessed,
+        timestamp: new Date()
+      },
+      results
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fixing user balances:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fix user balances',
+      details: error.message
+    });
+  }
+});
