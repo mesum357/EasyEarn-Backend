@@ -49,17 +49,57 @@ app.get('/api/test-cors', (req, res) => {
   console.log('🧪 CORS test endpoint hit');
   console.log('Origin:', req.headers.origin);
   console.log('All headers:', req.headers);
+  
+  // Explicitly set CORS headers for this endpoint
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
   res.json({ 
     success: true, 
     message: 'CORS test successful',
     origin: req.headers.origin,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    allowedOrigins: ALLOWED_ORIGINS
   });
 });
 
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
+
+// EARLY CORS HEADERS - Apply before any other middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  console.log(`🚀 EARLY CORS - Request from origin: ${origin}`);
+  console.log(`🚀 EARLY CORS - Request method: ${req.method}`);
+  console.log(`🚀 EARLY CORS - Request URL: ${req.url}`);
+  
+  // Set CORS headers for all requests from allowed origins
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ EARLY CORS - Setting headers for: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  }
+  
+  // Handle preflight requests immediately
+  if (req.method === 'OPTIONS') {
+    console.log(`🛡️ EARLY CORS - Handling preflight for: ${req.url}`);
+    res.status(200).end();
+    return;
+  }
+  
+  next();
+});
 
 // Simplified CORS configuration
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
@@ -130,17 +170,33 @@ app.use(cors({
 // Handle preflight OPTIONS requests
 app.options('*', cors());
 
-// Add CORS headers to all responses as a fallback
+// Add CORS headers to all responses as a fallback - MORE ROBUST VERSION
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   console.log(`🌐 Request from origin: ${origin}`);
+  console.log(`🌐 Request method: ${req.method}`);
+  console.log(`🌐 Request URL: ${req.url}`);
   
+  // Always set CORS headers for allowed origins
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for origin: ${origin}`);
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
     res.header('Access-Control-Expose-Headers', 'Set-Cookie');
+    res.header('Access-Control-Max-Age', '86400');
+  } else if (origin) {
+    console.log(`❌ Origin not in allowed list: ${origin}`);
+  } else {
+    console.log(`ℹ️ No origin header present`);
+  }
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    console.log(`🛡️ Handling preflight request for: ${req.url}`);
+    res.status(200).end();
+    return;
   }
   
   next();
@@ -1655,6 +1711,18 @@ app.get('/api/admin/deposits', async (req, res) => {
   console.log('💰 Admin deposits request received');
   console.log('Origin:', req.headers.origin);
   console.log('Query:', req.query);
+  
+  // Explicitly set CORS headers for admin endpoints
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for admin deposits: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
@@ -1875,6 +1943,18 @@ app.get('/api/admin/users', async (req, res) => {
   console.log('👥 Admin users request received');
   console.log('Origin:', req.headers.origin);
   console.log('Query:', req.query);
+  
+  // Explicitly set CORS headers for admin endpoints
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for admin users: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
@@ -2083,6 +2163,18 @@ app.post('/api/admin/notifications', async (req, res) => {
 app.get('/api/admin/notifications', async (req, res) => {
   console.log('🔔 Admin notifications request received');
   console.log('Origin:', req.headers.origin);
+  
+  // Explicitly set CORS headers for admin endpoints
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for admin notifications: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
   try {
     const notifications = await Notification.find({}).sort({ createdAt: -1 });
     res.json({ success: true, notifications });
@@ -2096,6 +2188,18 @@ app.get('/api/admin/dashboard-stats', async (req, res) => {
   console.log('📊 Admin dashboard stats request received');
   console.log('Origin:', req.headers.origin);
   console.log('User-Agent:', req.headers['user-agent']);
+  
+  // Explicitly set CORS headers for admin endpoints
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for admin endpoint: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
   try {
     // Get current date and calculate date ranges
     const now = new Date();
