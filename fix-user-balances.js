@@ -1,144 +1,154 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 
-// Import models
-const User = require('./React Websitee/pak-nexus/backend/models/User');
-
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://mesum357:pDliM118811@cluster0.h3knh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 });
 
-// Deposit Schema (copy from app.js)
-const depositSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  amount: {
-    type: Number,
-    required: true
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'confirmed', 'rejected'],
-    default: 'pending'
-  },
-  transactionHash: {
-    type: String,
-    required: false
-  },
-  receiptUrl: {
-    type: String,
-    required: false
-  },
-  notes: String,
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  confirmedAt: Date
-});
+// Define schemas
+const userSchema = new mongoose.Schema({
+  username: String,
+  balance: { type: Number, default: 0 },
+  hasDeposited: { type: Boolean, default: false },
+  referredBy: String,
+  referralCode: String,
+  referralCount: { type: Number, default: 0 },
+  referralEarnings: { type: Number, default: 0 }
+}, { timestamps: true });
 
+const depositSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  amount: Number,
+  status: String,
+  confirmedAt: Date,
+  createdAt: Date
+}, { timestamps: true });
+
+const withdrawalSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  amount: Number,
+  status: String,
+  createdAt: Date
+}, { timestamps: true });
+
+const User = mongoose.model('User', userSchema);
 const Deposit = mongoose.model('Deposit', depositSchema);
+const WithdrawalRequest = mongoose.model('WithdrawalRequest', withdrawalSchema);
 
 async function fixUserBalances() {
   try {
-    console.log('🔧 Starting user balance restoration...\n');
+    console.log('🔧 Fixing user balances according to business rules...\n');
+    console.log('📋 Business Rules:');
+    console.log('   - First $10 deposit: Unlocks tasks, does NOT count towards balance');
+    console.log('   - Additional deposits: Count towards spendable balance');
+    console.log('   - Formula: (Total Deposits - $10) - Total Withdrawals\n');
 
     // Get all users
     const users = await User.find({});
-    console.log(`📊 Found ${users.length} users to process\n`);
+    console.log(`📊 Found ${users.length} users\n`);
 
-    let fixedCount = 0;
-    let errorCount = 0;
+    let usersFixed = 0;
+    let usersUnchanged = 0;
+    let totalBalanceAdded = 0;
 
     for (const user of users) {
-      try {
-        console.log(`👤 Processing user: ${user.username} (${user._id})`);
-        
-        // Get all confirmed deposits for this user
-        const confirmedDeposits = await Deposit.find({
-          userId: user._id,
-          status: 'confirmed'
-        });
+      console.log(`👤 Processing: ${user.username} (${user._id})`);
+      console.log(`   Current Balance: $${user.balance}`);
+      console.log(`   Current hasDeposited: ${user.hasDeposited}`);
 
-        console.log(`   💰 Found ${confirmedDeposits.length} confirmed deposits`);
+      // Get all confirmed deposits for this user
+      const confirmedDeposits = await Deposit.find({ 
+        userId: user._id, 
+        status: 'confirmed' 
+      }).sort({ createdAt: 1 }); // Sort by creation date to identify first deposit
+
+      if (confirmedDeposits.length === 0) {
+        console.log(`   ❌ No confirmed deposits - skipping`);
+        console.log('   ---');
+        continue;
+      }
+
+      // Calculate total confirmed deposits
+      const totalDeposits = confirmedDeposits.reduce((sum, d) => sum + d.amount, 0);
+      
+      // Get total withdrawals
+      const withdrawals = await WithdrawalRequest.find({ 
+        userId: user._id, 
+        status: { $in: ['completed', 'pending', 'processing'] } 
+      });
+      const totalWithdrawn = withdrawals.reduce((sum, w) => sum + w.amount, 0);
+
+      // Calculate expected balance according to business rules
+      let expectedBalance = 0;
+      let shouldUpdateHasDeposited = false;
+
+      if (confirmedDeposits.length === 1 && confirmedDeposits[0].amount === 10) {
+        // Single $10 deposit - unlocks tasks but no balance
+        expectedBalance = 0;
+        shouldUpdateHasDeposited = true;
+        console.log(`   💡 Single $10 deposit: Tasks unlocked, balance = $0`);
+      } else if (confirmedDeposits.length === 1 && confirmedDeposits[0].amount > 10) {
+        // Single deposit > $10 - unlocks tasks and adds to balance
+        expectedBalance = Math.max(0, totalDeposits - 10 - totalWithdrawn);
+        shouldUpdateHasDeposited = true;
+        console.log(`   💡 Single deposit $${confirmedDeposits[0].amount}: Tasks unlocked, balance = $${expectedBalance}`);
+      } else if (confirmedDeposits.length > 1) {
+        // Multiple deposits - first $10 unlocks tasks, rest count towards balance
+        expectedBalance = Math.max(0, totalDeposits - 10 - totalWithdrawn);
+        shouldUpdateHasDeposited = true;
+        console.log(`   💡 Multiple deposits: First $10 unlocks tasks, balance = $${expectedBalance}`);
+      }
+
+      console.log(`   Total Confirmed: $${totalDeposits}`);
+      console.log(`   Total Withdrawn: $${totalWithdrawn}`);
+      console.log(`   Expected Balance: $${expectedBalance}`);
+      console.log(`   Balance Discrepancy: $${expectedBalance - user.balance}`);
+
+      // Check if balance needs updating
+      if (Math.abs(user.balance - expectedBalance) > 0.01) { // Allow for floating point precision
+        const oldBalance = user.balance;
+        user.balance = expectedBalance;
         
-        if (confirmedDeposits.length > 0) {
-          // Calculate total confirmed deposits
-          const totalDeposits = confirmedDeposits.reduce((sum, deposit) => sum + deposit.amount, 0);
-          
-          // Calculate balance: total deposits - 10
-          const newBalance = Math.max(0, totalDeposits - 10);
-          
-          // Check if user has deposited at least $10
-          const hasDeposited = totalDeposits >= 10;
-          
-          console.log(`   📊 Total confirmed deposits: $${totalDeposits}`);
-          console.log(`   💵 New balance: $${newBalance} (${totalDeposits} - 10)`);
-          console.log(`   🔓 Has deposited: ${hasDeposited}`);
-          
-          // Update user
-          user.balance = newBalance;
-          user.hasDeposited = hasDeposited;
-          
-          // Generate referral code if not exists
-          if (!user.referralCode) {
-            user.referralCode = generateReferralCode();
-            console.log(`   🎯 Generated referral code: ${user.referralCode}`);
-          }
-          
-          await user.save();
-          console.log(`   ✅ User ${user.username} updated successfully`);
-          fixedCount++;
-        } else {
-          console.log(`   ⚠️ No confirmed deposits found - balance remains $0`);
-          // Ensure hasDeposited is false for users with no deposits
-          if (user.hasDeposited !== false) {
-            user.hasDeposited = false;
-            user.balance = 0;
-            await user.save();
-            console.log(`   ✅ User ${user.username} updated (no deposits)`);
-            fixedCount++;
-          }
+        if (shouldUpdateHasDeposited && !user.hasDeposited) {
+          user.hasDeposited = true;
+          console.log(`   ✅ Updated hasDeposited: false → true`);
         }
         
-        console.log(''); // Empty line for readability
+        await user.save();
         
-      } catch (error) {
-        console.error(`   ❌ Error processing user ${user.username}:`, error.message);
-        errorCount++;
+        const balanceChange = expectedBalance - oldBalance;
+        totalBalanceAdded += balanceChange;
+        
+        console.log(`   ✅ Balance Updated: $${oldBalance} → $${expectedBalance} (${balanceChange > 0 ? '+' : ''}$${balanceChange})`);
+        usersFixed++;
+      } else {
+        console.log(`   ✅ Balance already correct`);
+        usersUnchanged++;
       }
+
+      console.log('   ---');
     }
 
-    console.log('🎉 Balance restoration completed!');
-    console.log(`✅ Successfully fixed: ${fixedCount} users`);
-    console.log(`❌ Errors: ${errorCount} users`);
+    console.log('\n🎉 BALANCE FIX COMPLETE!');
+    console.log(`📊 Summary:`);
+    console.log(`   Total Users Processed: ${users.length}`);
+    console.log(`   Users Fixed: ${usersFixed}`);
+    console.log(`   Users Unchanged: ${usersUnchanged}`);
+    console.log(`   Total Balance Added: $${totalBalanceAdded.toFixed(2)}`);
     
-    if (errorCount > 0) {
-      console.log('\n⚠️ Some users had errors. Check the logs above for details.');
+    if (usersFixed > 0) {
+      console.log(`\n✅ Successfully fixed ${usersFixed} user balances!`);
+    } else {
+      console.log(`\n✅ All user balances are already correct!`);
     }
 
   } catch (error) {
-    console.error('❌ Fatal error:', error);
+    console.error('❌ Error fixing balances:', error);
   } finally {
     mongoose.connection.close();
-    console.log('🔌 Database connection closed');
   }
 }
 
-// Generate a unique referral code
-function generateReferralCode() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
-  for (let i = 0; i < 8; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-// Run the script
-fixUserBalances().catch(console.error);
+fixUserBalances();
