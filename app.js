@@ -254,9 +254,10 @@ app.use(session({
   cookie: {
     httpOnly: true,
     maxAge: Number(process.env.SESSION_MAX_AGE || 7 * 24 * 60 * 60 * 1000), // 7 days default
-    secure: false, // Set to false for development to allow HTTP cookies
-    sameSite: 'lax', // Use 'lax' for development to allow cross-site cookies
-    path: '/'
+    secure: process.env.NODE_ENV === 'production', // Secure in production (HTTPS)
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
+    path: '/',
+    domain: process.env.NODE_ENV === 'production' ? undefined : undefined // Let browser set domain
   }
 }));
 
@@ -356,6 +357,14 @@ app.use(async (req, res, next) => {
     console.error('Session recovery middleware error:', error);
     next();
   }
+});
+
+// Add session ID header to all responses for debugging
+app.use((req, res, next) => {
+  if (req.sessionID) {
+    res.setHeader('X-Session-ID', req.sessionID);
+  }
+  next();
 });
 
 // JWT verification middleware (kept for backward compatibility)
@@ -1054,6 +1063,10 @@ app.post("/login", function(req, res, next) {
                             _id: user._id, 
                             email: user.email, 
                             username: user.username 
+                        },
+                        session: {
+                            id: req.sessionID,
+                            cookie: req.session.cookie
                         }
                     });
                 });
@@ -4582,5 +4595,36 @@ app.post('/api/admin/recalculate-balances', async (req, res) => {
   } catch (error) {
     console.error('Error recalculating balances:', error);
     res.status(500).json({ success: false, error: 'Failed to recalculate balances' });
+  }
+});
+
+// Debug endpoint for session troubleshooting in Railway
+app.get('/debug-config', (req, res) => {
+  try {
+    const config = {
+      NODE_ENV: process.env.NODE_ENV || 'not set',
+      SESSION_NAME: process.env.SESSION_NAME || 'easyearn.sid',
+      SESSION_SECRET: process.env.SESSION_SECRET ? 'set' : 'not set',
+      SESSION_MAX_AGE: process.env.SESSION_MAX_AGE || '7 days default',
+      MONGODB_URI: process.env.MONGODB_URI ? 'set' : 'not set',
+      sessionStore: 'MongoStore',
+      cookieSettings: {
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        httpOnly: true,
+        maxAge: Number(process.env.SESSION_MAX_AGE || 7 * 24 * 60 * 60 * 1000)
+      },
+      trustProxy: app.get('trust proxy'),
+      currentSession: {
+        id: req.sessionID,
+        hasSession: !!req.session,
+        sessionKeys: req.session ? Object.keys(req.session) : [],
+        user: req.user ? req.user.username : null
+      }
+    };
+    
+    res.json(config);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get config', details: error.message });
   }
 });
