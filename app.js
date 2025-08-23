@@ -48,7 +48,8 @@ app.set('trust proxy', 1);
 const ALLOWED_ORIGINS = [
   // Production URLs - Vercel
   'https://easyearn-frontend4.vercel.app',
-  'https://easyearn-frontend8.vercel.app',
+  'https://easyearn-frontend.onrender.com',
+    'https://easyearn-frontend8.vercel.app',
   'https://easyearn-frontend5-5s029wzy7-ahmads-projects-9a0217f0.vercel.app',
   'https://easyearn-adminpanel2.vercel.app',
   // Railway deployments
