@@ -2261,6 +2261,50 @@ app.put('/api/admin/users/:id/deactivate', async (req, res) => {
   }
 });
 
+// Admin: Update user balance
+app.put('/api/admin/users/:id/balance', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { balance } = req.body;
+
+    // Validate balance input
+    if (typeof balance !== 'number' || balance < 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Balance must be a positive number' 
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Store old balance for logging
+    const oldBalance = user.balance || 0;
+    
+    // Update the balance
+    user.balance = balance;
+    await user.save();
+
+    console.log(`💰 Admin updated user ${user.username} balance: $${oldBalance} → $${balance}`);
+
+    res.json({
+      success: true,
+      message: 'User balance updated successfully',
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        balance: user.balance
+      }
+    });
+  } catch (err) {
+    console.error('Error updating user balance:', err);
+    res.status(500).json({ error: 'Failed to update user balance', details: err.message });
+  }
+});
+
 // Notification Schema
 const notificationSchema = new mongoose.Schema({
   title: String,
