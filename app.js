@@ -4176,37 +4176,12 @@ app.put('/api/admin/task-submissions/:submissionId/review', async (req, res) => 
         console.log(`✅ TASK APPROVED: Adding $${submission.taskId.reward} to user ${user.username} balance`);
         console.log(`   Previous balance: $${user.balance}`);
         
-        // Calculate new balance: (total deposits - $10) + task rewards - total withdrawals
-        const totalDeposits = await Deposit.aggregate([
-          { $match: { userId: user._id, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
-        
-        // Get total task rewards (including this new approval)
-        const totalTaskRewards = await TaskSubmission.aggregate([
-          { $match: { userId: user._id, status: 'approved' } },
-          { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-          { $unwind: '$task' },
-          { $group: { _id: null, total: { $sum: '$task.reward' } } }
-        ]);
-        const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-        
-        // Get total withdrawals (including pending/processing)
-        const totalWithdrawn = await WithdrawalRequest.aggregate([
-          { $match: { userId: user._id, status: { $in: ['completed', 'pending', 'processing'] } } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-        
-        // Calculate new balance: (deposits - $10) + task rewards - withdrawals
-        const depositContribution = Math.max(0, totalDepositAmount - 10); // Only deposits beyond $10 count
-        const newBalance = depositContribution + totalTaskRewardAmount - totalWithdrawnAmount;
-        
-        user.balance = Math.max(0, newBalance);
+        // Use the enhanced calculateUserBalance function that integrates admin adjustments
+        const balanceInfo = await calculateUserBalance(user._id);
+        user.balance = balanceInfo.calculatedBalance;
         await user.save();
         
-        console.log(`   Balance calculation: (${totalDepositAmount} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${user.balance}`);
+        console.log(`   Enhanced balance calculation:`, balanceInfo);
         console.log(`   New balance: $${user.balance}`);
       }
     }
@@ -4345,44 +4320,17 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
     // Recalculate user balance properly after status change
     const user = await User.findById(withdrawalRequest.userId._id);
     if (user) {
-      // Calculate balance: (total deposits - $10) + task rewards - total withdrawn
-      const totalDeposits = await Deposit.aggregate([
-        { $match: { userId: user._id, status: 'confirmed' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-      const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
-      
-      // Get total task rewards
-      const totalTaskRewards = await TaskSubmission.aggregate([
-        { $match: { userId: user._id, status: 'approved' } },
-        { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-        { $unwind: '$task' },
-        { $group: { _id: null, total: { $sum: '$task.reward' } } }
-      ]);
-      const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-      
-      const totalWithdrawn = await WithdrawalRequest.aggregate([
-        { $match: { userId: user._id, status: { $in: ['completed', 'pending', 'processing'] } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
-      const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-      
-      // Calculate balance: (deposits - $10) + task rewards - withdrawals
-      const depositContribution = Math.max(0, totalDepositAmount - 10); // Only deposits beyond $10 count
-      const newBalance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
-      user.balance = newBalance;
+      // Use the enhanced calculateUserBalance function that integrates admin adjustments
+      const balanceInfo = await calculateUserBalance(user._id);
+      user.balance = balanceInfo.calculatedBalance;
       await user.save();
       
       console.log('Balance recalculated after admin processing:', {
         userId: user._id,
         withdrawalId: requestId,
         status: status,
-        totalDeposits: totalDepositAmount,
-        depositContribution: depositContribution,
-        totalTaskRewards: totalTaskRewardAmount,
-        totalWithdrawn: totalWithdrawnAmount,
-        newBalance: newBalance,
-        calculation: `(${totalDepositAmount} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${newBalance}`
+        balanceInfo: balanceInfo,
+        newBalance: user.balance
       });
     }
 
