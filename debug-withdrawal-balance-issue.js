@@ -11,16 +11,16 @@ if (!mongoURI) {
 mongoose.connect(mongoURI)
     .then(() => {
         console.log("Connected to MongoDB");
-        fixAllUserBalances();
+        debugWithdrawalBalanceIssue();
     })
     .catch((err) => {
         console.error("Error connecting to MongoDB:", err);
         process.exit(1);
     });
 
-async function fixAllUserBalances() {
+async function debugWithdrawalBalanceIssue() {
     try {
-        console.log('🔧 Fixing all user balances...');
+        console.log('🔍 Debugging withdrawal balance issue...');
         
         // Define models
         const User = require('./React Websitee/pak-nexus/backend/models/User');
@@ -60,15 +60,14 @@ async function fixAllUserBalances() {
         });
         const WithdrawalRequest = mongoose.model('WithdrawalRequest', withdrawalRequestSchema);
 
-        // Get all users
-        const allUsers = await User.find({});
-        console.log(`Found ${allUsers.length} users to fix`);
+        // Find users with balance issues
+        const users = await User.find({}).limit(5);
         
-        let fixedCount = 0;
-        let unchangedCount = 0;
-        
-        for (const user of allUsers) {
-            // Calculate correct balance
+        for (const user of users) {
+            console.log(`\n👤 User: ${user.username} (${user._id})`);
+            console.log(`   Current balance in database: $${user.balance}`);
+            
+            // Calculate what the balance should be
             const totalDeposits = await Deposit.aggregate([
                 { $match: { userId: user._id, status: 'confirmed' } },
                 { $group: { _id: null, total: { $sum: '$amount' } } }
@@ -90,31 +89,41 @@ async function fixAllUserBalances() {
             const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
             
             const depositContribution = Math.max(0, totalDepositAmount - 10);
-            const correctBalance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
+            const calculatedBalance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
             
-            // Check if balance needs to be updated
-            if (Math.abs(user.balance - correctBalance) > 0.01) { // Allow for small floating point differences
-                const oldBalance = user.balance;
-                user.balance = correctBalance;
-                await user.save();
-                
-                console.log(`✅ Fixed balance for ${user.username}: $${oldBalance} → $${correctBalance}`);
-                console.log(`   Deposits: $${totalDepositAmount}, Contribution: $${depositContribution}, Tasks: $${totalTaskRewardAmount}, Withdrawn: $${totalWithdrawnAmount}`);
-                fixedCount++;
-            } else {
-                unchangedCount++;
+            console.log(`   Total deposits: $${totalDepositAmount}`);
+            console.log(`   Deposit contribution (after $10 deduction): $${depositContribution}`);
+            console.log(`   Total task rewards: $${totalTaskRewardAmount}`);
+            console.log(`   Total withdrawn (including pending): $${totalWithdrawnAmount}`);
+            console.log(`   Calculated balance: $${calculatedBalance}`);
+            console.log(`   Balance difference: $${calculatedBalance - user.balance}`);
+            
+            // Test withdrawal scenarios
+            const testAmounts = [1, 5, 10, 15, 20];
+            for (const amount of testAmounts) {
+                const canWithdraw = calculatedBalance >= amount;
+                const currentBalanceCheck = user.balance >= amount;
+                console.log(`   Can withdraw $${amount}: ${canWithdraw} (calculated) / ${currentBalanceCheck} (current balance)`);
+            }
+            
+            // Check if there are pending withdrawals that might be causing issues
+            const pendingWithdrawals = await WithdrawalRequest.find({
+                userId: user._id,
+                status: { $in: ['pending', 'processing'] }
+            });
+            
+            if (pendingWithdrawals.length > 0) {
+                console.log(`   ⚠️  Pending withdrawals: ${pendingWithdrawals.length}`);
+                for (const withdrawal of pendingWithdrawals) {
+                    console.log(`      - $${withdrawal.amount} (${withdrawal.status}) - ${withdrawal.createdAt.toDateString()}`);
+                }
             }
         }
-        
-        console.log(`\n📊 Balance fix summary:`);
-        console.log(`   Fixed: ${fixedCount} users`);
-        console.log(`   Unchanged: ${unchangedCount} users`);
-        console.log(`   Total: ${allUsers.length} users`);
-        
-        console.log('\n✅ All user balances have been fixed!');
+
+        console.log('\n✅ Withdrawal balance debug completed!');
         
     } catch (error) {
-        console.error('❌ Error fixing user balances:', error);
+        console.error('❌ Error debugging withdrawal balance issue:', error);
     } finally {
         mongoose.connection.close();
         console.log('🔌 Database connection closed');

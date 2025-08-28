@@ -3657,10 +3657,60 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Minimum withdrawal amount is $1' });
     }
 
-    // Check user balance
+    // Check user balance using calculated balance instead of stored balance
     const user = await User.findById(userId);
-    if (!user || user.balance < amount) {
-      return res.status(400).json({ success: false, error: 'Insufficient balance' });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Calculate actual available balance: (total deposits - $10) + task rewards - total withdrawn
+    const withdrawalCheckDeposits = await Deposit.aggregate([
+      { $match: { userId: userId, status: 'confirmed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const withdrawalCheckDepositAmount = withdrawalCheckDeposits.length > 0 ? withdrawalCheckDeposits[0].total : 0;
+    
+    const withdrawalCheckTaskRewards = await TaskSubmission.aggregate([
+      { $match: { userId: userId, status: 'approved' } },
+      { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
+      { $unwind: '$task' },
+      { $group: { _id: null, total: { $sum: '$task.reward' } } }
+    ]);
+    const withdrawalCheckTaskRewardAmount = withdrawalCheckTaskRewards.length > 0 ? withdrawalCheckTaskRewards[0].total : 0;
+    
+    const withdrawalCheckWithdrawn = await WithdrawalRequest.aggregate([
+      { $match: { userId: userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const withdrawalCheckWithdrawnAmount = withdrawalCheckWithdrawn.length > 0 ? withdrawalCheckWithdrawn[0].total : 0;
+    
+    const withdrawalCheckDepositContribution = Math.max(0, withdrawalCheckDepositAmount - 10);
+    const availableBalance = Math.max(0, withdrawalCheckDepositContribution + withdrawalCheckTaskRewardAmount - withdrawalCheckWithdrawnAmount);
+    
+    console.log('Balance check for withdrawal:', {
+      userId: userId,
+      totalDeposits: withdrawalCheckDepositAmount,
+      depositContribution: withdrawalCheckDepositContribution,
+      totalTaskRewards: withdrawalCheckTaskRewardAmount,
+      totalWithdrawn: withdrawalCheckWithdrawnAmount,
+      availableBalance: availableBalance,
+      withdrawalAmount: amount,
+      storedBalance: user.balance,
+      calculation: `(${withdrawalCheckDepositAmount} - 10) + ${withdrawalCheckTaskRewardAmount} - ${withdrawalCheckWithdrawnAmount} = ${withdrawalCheckDepositContribution} + ${withdrawalCheckTaskRewardAmount} - ${withdrawalCheckWithdrawnAmount} = $${availableBalance}`
+    });
+
+    if (availableBalance < amount) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Insufficient balance',
+        details: {
+          availableBalance: availableBalance,
+          requestedAmount: amount,
+          totalDeposits: withdrawalCheckDepositAmount,
+          totalTaskRewards: withdrawalCheckTaskRewardAmount,
+          totalWithdrawn: withdrawalCheckWithdrawnAmount
+        }
+      });
     }
 
     // Check withdrawal requirements - calculate period from user creation date
@@ -3699,45 +3749,17 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
 
     await withdrawalRequest.save();
 
-    // Recalculate user balance properly: (total deposits - $10) + task rewards - total withdrawn (including new request)
-    const totalDeposits = await Deposit.aggregate([
-      { $match: { userId: userId, status: 'confirmed' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
-    
-    // Get total task rewards
-    const totalTaskRewards = await TaskSubmission.aggregate([
-      { $match: { userId: userId, status: 'approved' } },
-      { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-      { $unwind: '$task' },
-      { $group: { _id: null, total: { $sum: '$task.reward' } } }
-    ]);
-    const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-    
-    // Include the new withdrawal request in the calculation
-    const totalWithdrawn = await WithdrawalRequest.aggregate([
-      { $match: { userId: userId, status: { $in: ['completed', 'pending', 'processing'] } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-    
-    // Calculate balance: (deposits - $10) + task rewards - withdrawals
-    const depositContribution = Math.max(0, totalDepositAmount - 10); // Only deposits beyond $10 count
-    const newBalance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
-    user.balance = newBalance;
+    // Update user balance to reflect the new withdrawal request
+    const newAvailableBalance = availableBalance - amount;
+    user.balance = newAvailableBalance;
     await user.save();
     
-    console.log('Balance recalculated after withdrawal request:', {
+    console.log('Balance updated after withdrawal request:', {
       userId: userId,
-      totalDeposits: totalDepositAmount,
-      depositContribution: depositContribution,
-      totalTaskRewards: totalTaskRewardAmount,
-      totalWithdrawn: totalWithdrawnAmount,
-      newBalance: newBalance,
+      previousAvailableBalance: availableBalance,
       withdrawalAmount: amount,
-      calculation: `(${totalDepositAmount} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${newBalance}`,
-      note: 'Includes pending/processing withdrawals in available balance calculation'
+      newAvailableBalance: newAvailableBalance,
+      note: 'Balance updated to reflect new withdrawal request'
     });
 
     res.json({
