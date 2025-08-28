@@ -2342,11 +2342,11 @@ app.put('/api/admin/users/:id/balance', async (req, res) => {
     const { id } = req.params;
     const { balance, operation = 'set' } = req.body; // operation can be 'set' or 'add'
 
-    // Validate balance input
-    if (typeof balance !== 'number' || balance < 0) {
+    // Validate balance input - allow negative values for decreasing balance
+    if (typeof balance !== 'number') {
       return res.status(400).json({ 
         success: false, 
-        error: 'Balance must be a positive number' 
+        error: 'Balance must be a valid number' 
       });
     }
 
@@ -2364,7 +2364,7 @@ app.put('/api/admin/users/:id/balance', async (req, res) => {
       newBalance = oldBalance + balance;
       console.log(`💰 Admin added $${balance} to user ${user.username} balance: $${oldBalance} → $${newBalance}`);
     } else {
-      // Default operation is 'set' - replace the balance
+      // Default operation is 'set' - set the balance to the specified value
       newBalance = balance;
       console.log(`💰 Admin set user ${user.username} balance: $${oldBalance} → $${newBalance}`);
     }
