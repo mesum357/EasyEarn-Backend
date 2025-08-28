@@ -2336,11 +2336,24 @@ app.put('/api/admin/users/:id/deactivate', async (req, res) => {
   }
 });
 
+// Admin Balance Adjustment Schema
+const adminBalanceAdjustmentSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  operation: { type: String, enum: ['set', 'add'], required: true },
+  amount: { type: Number, required: true },
+  reason: { type: String, default: 'Admin adjustment' },
+  previousBalance: { type: Number, required: true },
+  newBalance: { type: Number, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+const AdminBalanceAdjustment = mongoose.model('AdminBalanceAdjustment', adminBalanceAdjustmentSchema);
+
 // Admin: Update user balance
 app.put('/api/admin/users/:id/balance', async (req, res) => {
   try {
     const { id } = req.params;
-    const { balance, operation = 'set' } = req.body; // operation can be 'set' or 'add'
+    const { balance, operation = 'set', reason = 'Admin adjustment' } = req.body; // operation can be 'set' or 'add'
 
     // Validate balance input - allow negative values for decreasing balance
     if (typeof balance !== 'number') {
@@ -2369,6 +2382,19 @@ app.put('/api/admin/users/:id/balance', async (req, res) => {
       console.log(`💰 Admin set user ${user.username} balance: $${oldBalance} → $${newBalance}`);
     }
     
+    // Save the admin balance adjustment record
+    const adminAdjustment = new AdminBalanceAdjustment({
+      userId: user._id,
+      adminId: req.user?._id || 'admin', // Use authenticated admin ID if available
+      operation: operation,
+      amount: balance,
+      reason: reason,
+      previousBalance: oldBalance,
+      newBalance: newBalance
+    });
+    await adminAdjustment.save();
+    
+    // Update user's balance
     user.balance = newBalance;
     await user.save();
 
@@ -2386,7 +2412,8 @@ app.put('/api/admin/users/:id/balance', async (req, res) => {
       operation: operation,
       amountChanged: operation === 'add' ? balance : newBalance - oldBalance,
       oldBalance: oldBalance,
-      newBalance: newBalance
+      newBalance: newBalance,
+      adjustmentId: adminAdjustment._id
     });
   } catch (err) {
     console.error('Error updating user balance:', err);
@@ -4806,15 +4833,95 @@ async function calculateUserBalance(userId) {
     ]);
     const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
     
-    // Calculate balance based on deposit amount
-    let calculatedBalance;
+    // Get the latest admin balance adjustment (if any)
+    const latestAdminAdjustment = await AdminBalanceAdjustment.findOne(
+      { userId: userId },
+      { sort: { createdAt: -1 } }
+    );
+    
+    // Calculate base balance from deposits and tasks
+    let baseBalance;
+    let depositContribution = 0;
+    
     if (totalDepositAmount <= 10) {
-      // For $10 or less deposits: balance = task rewards - withdrawals (no deposit contribution)
-      calculatedBalance = Math.max(0, totalTaskRewardAmount - totalWithdrawnAmount);
+      // For $10 or less deposits: base balance = task rewards - withdrawals (no deposit contribution)
+      baseBalance = Math.max(0, totalTaskRewardAmount - totalWithdrawnAmount);
     } else {
-      // For deposits > $10: balance = (deposits - $10) + task rewards - withdrawals
-      const depositContribution = totalDepositAmount - 10; // Only deposits beyond $10 count
-      calculatedBalance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
+      // For deposits > $10: base balance = (deposits - $10) + task rewards - withdrawals
+      depositContribution = totalDepositAmount - 10; // Only deposits beyond $10 count
+      baseBalance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
+    }
+    
+    // If there's an admin adjustment, use it as the base and add ongoing deposits/tasks
+    let finalBalance = baseBalance;
+    let adminAdjustmentNote = '';
+    
+    if (latestAdminAdjustment && latestAdminAdjustment.operation === 'set') {
+      // Admin set a specific balance - use that as base and add ongoing activity
+      const adminSetBalance = latestAdminAdjustment.newBalance;
+      
+      // Calculate ongoing activity since admin adjustment
+      const ongoingDeposits = await Deposit.aggregate([
+        { $match: { 
+          userId: userId, 
+          status: 'confirmed',
+          createdAt: { $gt: latestAdminAdjustment.createdAt }
+        }},
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+      const ongoingDepositAmount = ongoingDeposits.length > 0 ? ongoingDeposits[0].total : 0;
+      
+      const ongoingTaskRewards = await TaskSubmission.aggregate([
+        { $match: { 
+          userId: userId, 
+          status: 'approved',
+          createdAt: { $gt: latestAdminAdjustment.createdAt }
+        }},
+        { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
+        { $unwind: '$task' },
+        { $group: { _id: null, total: { $sum: '$task.reward' } } }
+      ]);
+      const ongoingTaskRewardAmount = ongoingTaskRewards.length > 0 ? ongoingTaskRewards[0].total : 0;
+      
+      const ongoingWithdrawals = await WithdrawalRequest.aggregate([
+        { $match: { 
+          userId: userId, 
+          status: { $in: ['completed', 'pending', 'processing'] },
+          createdAt: { $gt: latestAdminAdjustment.createdAt }
+        }},
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]);
+      const ongoingWithdrawalAmount = ongoingWithdrawals.length > 0 ? ongoingWithdrawals[0].total : 0;
+      
+      // Calculate ongoing deposit contribution
+      let ongoingDepositContribution = 0;
+      if (ongoingDepositAmount > 0) {
+        // Check if user had already deposited $10 before admin adjustment
+        const depositsBeforeAdjustment = await Deposit.aggregate([
+          { $match: { 
+            userId: userId, 
+            status: 'confirmed',
+            createdAt: { $lte: latestAdminAdjustment.createdAt }
+          }},
+          { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const depositsBeforeAmount = depositsBeforeAdjustment.length > 0 ? depositsBeforeAdjustment[0].total : 0;
+        
+        if (depositsBeforeAmount >= 10) {
+          // User already unlocked tasks, all ongoing deposits count
+          ongoingDepositContribution = ongoingDepositAmount;
+        } else if (depositsBeforeAmount + ongoingDepositAmount > 10) {
+          // Ongoing deposits unlock tasks and contribute to balance
+          ongoingDepositContribution = Math.max(0, (depositsBeforeAmount + ongoingDepositAmount) - 10);
+        }
+        // If still under $10, no deposit contribution
+      }
+      
+      // Final balance = admin set balance + ongoing activity
+      finalBalance = adminSetBalance + ongoingDepositContribution + ongoingTaskRewardAmount - ongoingWithdrawalAmount;
+      finalBalance = Math.max(0, finalBalance); // Ensure non-negative
+      
+      adminAdjustmentNote = `Admin set balance: $${adminSetBalance}, Ongoing: +$${ongoingDepositContribution} (deposits) + $${ongoingTaskRewardAmount} (tasks) - $${ongoingWithdrawalAmount} (withdrawals)`;
     }
     
     return {
@@ -4822,11 +4929,23 @@ async function calculateUserBalance(userId) {
       depositContribution: depositContribution,
       totalTaskRewards: totalTaskRewardAmount,
       totalWithdrawn: totalWithdrawnAmount,
-      calculatedBalance: calculatedBalance
+      calculatedBalance: finalBalance,
+      baseBalance: baseBalance,
+      adminAdjustmentNote: adminAdjustmentNote,
+      hasAdminAdjustment: !!latestAdminAdjustment
     };
   } catch (error) {
     console.error('Error calculating user balance:', error);
-    return { totalDeposits: 0, depositContribution: 0, totalTaskRewards: 0, totalWithdrawn: 0, calculatedBalance: 0 };
+    return { 
+      totalDeposits: 0, 
+      depositContribution: 0, 
+      totalTaskRewards: 0, 
+      totalWithdrawn: 0, 
+      calculatedBalance: 0,
+      baseBalance: 0,
+      adminAdjustmentNote: '',
+      hasAdminAdjustment: false
+    };
   }
 }
 
