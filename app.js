@@ -895,7 +895,19 @@ function generateReferralCode() {
 async function checkAndCompleteReferrals(userId) {
     try {
         const user = await User.findById(userId);
-        if (!user || !user.hasDeposited) {
+        if (!user) {
+            return; // User not found
+        }
+
+        // Check if user has deposited $10 or more (not just hasDeposited flag)
+        const totalDeposits = await Deposit.aggregate([
+            { $match: { userId: userId, status: 'confirmed' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
+
+        if (totalDepositAmount < 10) {
+            console.log(`Referral not completed: User ${user.username} (${userId}) has only deposited $${totalDepositAmount}, needs $10+`);
             return; // User hasn't deposited $10 yet
         }
 
@@ -910,7 +922,7 @@ async function checkAndCompleteReferrals(userId) {
             referral.status = 'completed';
             await referral.save();
             
-            console.log(`Referral completed: User ${user.username} (${userId}) has deposited $10, completing referral from ${referral.referrer}`);
+            console.log(`✅ Referral completed: User ${user.username} (${userId}) has deposited $${totalDepositAmount}, completing referral from ${referral.referrer}`);
         }
     } catch (error) {
         console.error('Error checking and completing referrals:', error);
@@ -3468,16 +3480,33 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
     const userId = req.user._id;
     const now = new Date();
     
-    // Calculate current 15-day period
-    const periodStart = new Date(now);
-    periodStart.setDate(periodStart.getDate() - (periodStart.getDate() % 15));
+    // Get user to calculate periods from creation date
+    const user = await User.findById(userId);
+    if (!user) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+    }
+    
+    // Calculate 15-day periods starting from user creation date
+    const userCreatedAt = user.createdAt;
+    const daysSinceCreation = Math.floor((now - userCreatedAt) / (1000 * 60 * 60 * 24));
+    const periodNumber = Math.floor(daysSinceCreation / 15);
+    
+    const periodStart = new Date(userCreatedAt);
+    periodStart.setDate(periodStart.getDate() + (periodNumber * 15));
     periodStart.setHours(0, 0, 0, 0);
     
     const periodEnd = new Date(periodStart);
     periodEnd.setDate(periodEnd.getDate() + 15);
     periodEnd.setHours(23, 59, 59, 999);
 
-    console.log('Period calculation:', { periodStart, periodEnd, now });
+    console.log('Period calculation:', { 
+        userCreatedAt: userCreatedAt.toDateString(),
+        daysSinceCreation,
+        periodNumber,
+        periodStart: periodStart.toDateString(), 
+        periodEnd: periodEnd.toDateString(), 
+        now: now.toDateString() 
+    });
 
     // Find or create requirement record
     let requirement = await WithdrawalRequirement.findOne({
@@ -3505,28 +3534,19 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
       console.log('New requirement saved');
     }
 
-    // Update requirements based on user activity
-    const user = await User.findById(userId);
+    // Update requirements based on user activity (user already fetched above)
     console.log('User found:', !!user);
     
-    // Check confirmed referrals where the referred user has deposited in this period
+    // Check completed referrals where the referred user has deposited $10+ in this period
     const referralsInPeriod = await Referral.aggregate([
       { $match: { 
         referrer: userId,
+        status: 'completed',
         createdAt: { $gte: periodStart, $lte: periodEnd }
-      }},
-      { $lookup: { 
-        from: 'users', 
-        localField: 'referred', 
-        foreignField: '_id', 
-        as: 'referredUser' 
-      }},
-      { $match: { 
-        'referredUser.hasDeposited': true 
       }},
       { $count: 'total' }
     ]).then(result => result[0]?.total || 0);
-    console.log('Referrals in period:', referralsInPeriod);
+    console.log('Completed referrals in period:', referralsInPeriod);
 
     // Check total deposit amount (not count)
     const totalDeposits = await Deposit.aggregate([
@@ -3643,10 +3663,16 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Insufficient balance' });
     }
 
-    // Check withdrawal requirements
+    // Check withdrawal requirements - calculate period from user creation date
     const now = new Date();
-    const periodStart = new Date(now);
-    periodStart.setDate(periodStart.getDate() - (periodStart.getDate() % 15));
+    const userCreatedAt = user.createdAt;
+    
+    // Calculate current period based on user creation date
+    const daysSinceCreation = Math.floor((now - userCreatedAt) / (1000 * 60 * 60 * 24));
+    const periodNumber = Math.floor(daysSinceCreation / 15);
+    
+    const periodStart = new Date(userCreatedAt);
+    periodStart.setDate(periodStart.getDate() + (periodNumber * 15));
     periodStart.setHours(0, 0, 0, 0);
     
     const periodEnd = new Date(periodStart);
