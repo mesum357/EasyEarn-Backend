@@ -2340,7 +2340,7 @@ app.put('/api/admin/users/:id/deactivate', async (req, res) => {
 app.put('/api/admin/users/:id/balance', async (req, res) => {
   try {
     const { id } = req.params;
-    const { balance } = req.body;
+    const { balance, operation = 'set' } = req.body; // operation can be 'set' or 'add'
 
     // Validate balance input
     if (typeof balance !== 'number' || balance < 0) {
@@ -2358,21 +2358,35 @@ app.put('/api/admin/users/:id/balance', async (req, res) => {
     // Store old balance for logging
     const oldBalance = user.balance || 0;
     
-    // Update the balance
-    user.balance = balance;
+    // Update the balance based on operation
+    let newBalance;
+    if (operation === 'add') {
+      newBalance = oldBalance + balance;
+      console.log(`💰 Admin added $${balance} to user ${user.username} balance: $${oldBalance} → $${newBalance}`);
+    } else {
+      // Default operation is 'set' - replace the balance
+      newBalance = balance;
+      console.log(`💰 Admin set user ${user.username} balance: $${oldBalance} → $${newBalance}`);
+    }
+    
+    user.balance = newBalance;
     await user.save();
-
-    console.log(`💰 Admin updated user ${user.username} balance: $${oldBalance} → $${balance}`);
 
     res.json({
       success: true,
-      message: 'User balance updated successfully',
+      message: operation === 'add' ? 
+        `Successfully added $${balance} to user balance` : 
+        'User balance updated successfully',
       user: {
         _id: user._id,
         username: user.username,
         email: user.email,
         balance: user.balance
-      }
+      },
+      operation: operation,
+      amountChanged: operation === 'add' ? balance : newBalance - oldBalance,
+      oldBalance: oldBalance,
+      newBalance: newBalance
     });
   } catch (err) {
     console.error('Error updating user balance:', err);
