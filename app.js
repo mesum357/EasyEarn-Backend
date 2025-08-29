@@ -4758,25 +4758,48 @@ app.post('/api/admin/fix-user-balances', async (req, res) => {
 // Utility function to calculate user balance consistently
 async function calculateUserBalance(userId) {
   try {
-    // Calculate balance: (total confirmed deposits - $10) + task rewards - total withdrawn (including pending/processing)
-    const totalDeposits = await Deposit.aggregate([
-      { $match: { userId: userId, status: 'confirmed' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
+    // Convert userId to ObjectId for aggregation queries
+    const userIdObj = new mongoose.Types.ObjectId(userId.toString());
     
-    // Get total task rewards
+    // Get all confirmed deposits sorted by creation date
+    const deposits = await Deposit.find({ 
+      userId: userId, 
+      status: 'confirmed' 
+    }).sort({ createdAt: 1 });
+    
+    // Calculate deposit contribution with $10 unlock fee logic
+    let depositContribution = 0;
+    let remainingUnlockFee = 10; // $10 unlock fee
+    
+    for (const deposit of deposits) {
+      if (remainingUnlockFee > 0) {
+        // Apply deposit to unlock fee first
+        if (deposit.amount <= remainingUnlockFee) {
+          remainingUnlockFee -= deposit.amount;
+          // This deposit goes entirely to unlock fee, no contribution to balance
+        } else {
+          // Deposit exceeds remaining unlock fee
+          depositContribution += deposit.amount - remainingUnlockFee;
+          remainingUnlockFee = 0;
+        }
+      } else {
+        // Unlock fee already paid, all deposits contribute to balance
+        depositContribution += deposit.amount;
+      }
+    }
+    
+    // Get total task rewards with proper ObjectId conversion
     const totalTaskRewards = await TaskSubmission.aggregate([
-      { $match: { userId: userId, status: 'approved' } },
+      { $match: { userId: userIdObj, status: 'approved' } },
       { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
       { $unwind: '$task' },
       { $group: { _id: null, total: { $sum: '$task.reward' } } }
     ]);
     const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
     
-    // Include pending and processing withdrawals in available balance calculation
+    // Get total withdrawals (including pending/processing)
     const totalWithdrawn = await WithdrawalRequest.aggregate([
-      { $match: { userId: userId, status: { $in: ['completed', 'pending', 'processing'] } } },
+      { $match: { userId: userIdObj, status: { $in: ['completed', 'pending', 'processing'] } } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
     const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
@@ -4786,85 +4809,96 @@ async function calculateUserBalance(userId) {
       { userId: userId }
     ).sort({ createdAt: -1 }).limit(1).then(results => results[0]);
     
-    // Calculate base balance from deposits and tasks
-    let baseBalance;
-    let depositContribution = 0;
-    
-    if (totalDepositAmount <= 10) {
-      // For $10 or less deposits: base balance = task rewards - withdrawals (no deposit contribution)
-      baseBalance = Math.max(0, totalTaskRewardAmount - totalWithdrawnAmount);
-    } else {
-      // For deposits > $10: base balance = (deposits - $10) + task rewards - withdrawals
-      depositContribution = totalDepositAmount - 10; // Only deposits beyond $10 count
-      baseBalance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
-    }
-    
-    // If there's an admin adjustment, use it as the base and add ongoing deposits/tasks
+    // Calculate base balance: deposits (after $10 unlock) + task rewards - withdrawals
+    let baseBalance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
     let finalBalance = baseBalance;
     let adminAdjustmentNote = '';
     
+    // If there's an admin adjustment, use it as the base and add ongoing activity
     if (latestAdminAdjustment && latestAdminAdjustment.operation === 'set') {
-      // Admin set a specific balance - use that as base and add ongoing activity
       const adminSetBalance = latestAdminAdjustment.newBalance;
       
-      // Calculate ongoing activity since admin adjustment
-      const ongoingDeposits = await Deposit.aggregate([
-        { $match: { 
-          userId: userId, 
-          status: 'confirmed',
-          createdAt: { $gt: latestAdminAdjustment.createdAt }
-        }},
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
+                          // Calculate ongoing deposits since admin adjustment
+                    const ongoingDeposits = await Deposit.aggregate([
+                        { $match: { 
+                            userId: userIdObj, 
+                            status: 'confirmed'
+                        }},
+                        { $addFields: {
+                            createdAtDate: { $toDate: '$createdAt' }
+                        }},
+                        { $match: { 
+                            createdAtDate: { $gt: latestAdminAdjustment.createdAt }
+                        }},
+                        { $group: { _id: null, total: { $sum: '$amount' } } }
+                    ]);
       const ongoingDepositAmount = ongoingDeposits.length > 0 ? ongoingDeposits[0].total : 0;
       
-      const ongoingTaskRewards = await TaskSubmission.aggregate([
-        { $match: { 
-          userId: userId, 
-          status: 'approved',
-          createdAt: { $gt: latestAdminAdjustment.createdAt }
-        }},
-        { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-        { $unwind: '$task' },
-        { $group: { _id: null, total: { $sum: '$task.reward' } } }
-      ]);
+                          // Calculate ongoing task rewards since admin adjustment
+                    const ongoingTaskRewards = await TaskSubmission.aggregate([
+                        { $match: { 
+                            userId: userIdObj, 
+                            status: 'approved'
+                        }},
+                        { $addFields: {
+                            submittedAtDate: { $toDate: '$submittedAt' }
+                        }},
+                        { $match: { 
+                            submittedAtDate: { $gt: latestAdminAdjustment.createdAt }
+                        }},
+                        { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
+                        { $unwind: '$task' },
+                        { $group: { _id: null, total: { $sum: '$task.reward' } } }
+                    ]);
       const ongoingTaskRewardAmount = ongoingTaskRewards.length > 0 ? ongoingTaskRewards[0].total : 0;
       
-      const ongoingWithdrawals = await WithdrawalRequest.aggregate([
-        { $match: { 
-          userId: userId, 
-          status: { $in: ['completed', 'pending', 'processing'] },
-          createdAt: { $gt: latestAdminAdjustment.createdAt }
-        }},
-        { $group: { _id: null, total: { $sum: '$amount' } } }
-      ]);
+                          // Calculate ongoing withdrawals since admin adjustment
+                    const ongoingWithdrawals = await WithdrawalRequest.aggregate([
+                        { $match: { 
+                            userId: userIdObj, 
+                            status: { $in: ['completed', 'pending', 'processing'] }
+                        }},
+                        { $addFields: {
+                            createdAtDate: { $toDate: '$createdAt' }
+                        }},
+                        { $match: { 
+                            createdAtDate: { $gt: latestAdminAdjustment.createdAt }
+                        }},
+                        { $group: { _id: null, total: { $sum: '$amount' } } }
+                    ]);
       const ongoingWithdrawalAmount = ongoingWithdrawals.length > 0 ? ongoingWithdrawals[0].total : 0;
       
-      // Calculate ongoing deposit contribution
+      // Calculate ongoing deposit contribution (considering unlock fee)
       let ongoingDepositContribution = 0;
       if (ongoingDepositAmount > 0) {
-        // Check if user had already deposited $10 before admin adjustment
-        const depositsBeforeAdjustment = await Deposit.aggregate([
-          { $match: { 
-            userId: userId, 
-            status: 'confirmed',
-            createdAt: { $lte: latestAdminAdjustment.createdAt }
-          }},
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const depositsBeforeAmount = depositsBeforeAdjustment.length > 0 ? depositsBeforeAdjustment[0].total : 0;
+        // Check if user had already unlocked tasks before admin adjustment
+        const depositsBeforeAdjustment = await Deposit.find({ 
+          userId: userId, 
+          status: 'confirmed',
+          createdAt: { $lte: latestAdminAdjustment.createdAt }
+        }).sort({ createdAt: 1 });
         
-        if (depositsBeforeAmount >= 10) {
+        let unlockFeePaid = 0;
+        for (const deposit of depositsBeforeAdjustment) {
+          if (unlockFeePaid < 10) {
+            unlockFeePaid += deposit.amount;
+          }
+        }
+        
+        if (unlockFeePaid >= 10) {
           // User already unlocked tasks, all ongoing deposits count
           ongoingDepositContribution = ongoingDepositAmount;
-        } else if (depositsBeforeAmount + ongoingDepositAmount > 10) {
-          // Ongoing deposits unlock tasks and contribute to balance
-          ongoingDepositContribution = Math.max(0, (depositsBeforeAmount + ongoingDepositAmount) - 10);
+        } else {
+          // Calculate how much of ongoing deposits goes to unlock fee
+          const remainingUnlockFee = 10 - unlockFeePaid;
+          if (ongoingDepositAmount > remainingUnlockFee) {
+            ongoingDepositContribution = ongoingDepositAmount - remainingUnlockFee;
+          }
+          // If ongoing deposits don't exceed remaining unlock fee, no contribution
         }
-        // If still under $10, no deposit contribution
       }
       
-      // Final balance = admin set balance + ongoing activity
+      // Final balance = admin set balance + ongoing deposits + ongoing tasks - ongoing withdrawals
       finalBalance = adminSetBalance + ongoingDepositContribution + ongoingTaskRewardAmount - ongoingWithdrawalAmount;
       finalBalance = Math.max(0, finalBalance); // Ensure non-negative
       
@@ -4872,14 +4906,15 @@ async function calculateUserBalance(userId) {
     }
     
     return {
-      totalDeposits: totalDepositAmount,
+      totalDeposits: deposits.reduce((sum, d) => sum + d.amount, 0),
       depositContribution: depositContribution,
       totalTaskRewards: totalTaskRewardAmount,
       totalWithdrawn: totalWithdrawnAmount,
       calculatedBalance: finalBalance,
       baseBalance: baseBalance,
       adminAdjustmentNote: adminAdjustmentNote,
-      hasAdminAdjustment: !!latestAdminAdjustment
+      hasAdminAdjustment: !!latestAdminAdjustment,
+      unlockFeePaid: Math.min(10, deposits.reduce((sum, d) => sum + d.amount, 0))
     };
   } catch (error) {
     console.error('Error calculating user balance:', error);
@@ -4891,7 +4926,8 @@ async function calculateUserBalance(userId) {
       calculatedBalance: 0,
       baseBalance: 0,
       adminAdjustmentNote: '',
-      hasAdminAdjustment: false
+      hasAdminAdjustment: false,
+      unlockFeePaid: 0
     };
   }
 }
