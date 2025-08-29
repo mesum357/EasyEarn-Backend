@@ -89,7 +89,7 @@ async function testTaskApprovalBalanceFix() {
         console.log(`\n1️⃣ Admin sets balance to $100`);
         const adminAdjustment = new AdminBalanceAdjustment({
             userId: testUser._id,
-            adminId: 'admin',
+            adminId: testUser._id, // Use a valid ObjectId
             operation: 'set',
             amount: 100,
             reason: 'Test admin balance set',
@@ -150,10 +150,9 @@ async function testTaskApprovalBalanceFix() {
         const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
         
         // Get the latest admin balance adjustment
-        const latestAdminAdjustment = await AdminBalanceAdjustment.findOne(
-            { userId: testUser._id },
-            { sort: { createdAt: -1 } }
-        );
+        const latestAdminAdjustment = await AdminBalanceAdjustment.find(
+            { userId: testUser._id }
+        ).sort({ createdAt: -1 }).limit(1).then(results => results[0]);
         
         let finalBalance;
         if (latestAdminAdjustment && latestAdminAdjustment.operation === 'set') {

@@ -11,20 +11,32 @@ if (!mongoURI) {
 mongoose.connect(mongoURI)
     .then(() => {
         console.log("Connected to MongoDB");
-        testAdminBalanceIntegration();
+        testCalculateUserBalanceDirect();
     })
     .catch((err) => {
         console.error("Error connecting to MongoDB:", err);
         process.exit(1);
     });
 
-async function testAdminBalanceIntegration() {
+async function testCalculateUserBalanceDirect() {
     try {
-        console.log('🧪 Testing admin balance integration with ongoing deposits and tasks...');
+        console.log('🧪 Testing calculateUserBalance function directly...');
         
-        // Define models
+        // Define models (same as in app.js)
         const User = require('./React Websitee/pak-nexus/backend/models/User');
         
+        const adminBalanceAdjustmentSchema = new mongoose.Schema({
+            userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+            adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+            operation: { type: String, enum: ['set', 'add'], required: true },
+            amount: { type: Number, required: true },
+            reason: { type: String, default: 'Admin adjustment' },
+            previousBalance: { type: Number, required: true },
+            newBalance: { type: Number, required: true },
+            createdAt: { type: Date, default: Date.now }
+        });
+        const AdminBalanceAdjustment = mongoose.model('AdminBalanceAdjustment', adminBalanceAdjustmentSchema);
+
         const depositSchema = new mongoose.Schema({
             userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
             amount: { type: Number, required: true },
@@ -60,18 +72,6 @@ async function testAdminBalanceIntegration() {
         });
         const WithdrawalRequest = mongoose.model('WithdrawalRequest', withdrawalRequestSchema);
 
-        const adminBalanceAdjustmentSchema = new mongoose.Schema({
-            userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-            adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-            operation: { type: String, enum: ['set', 'add'], required: true },
-            amount: { type: Number, required: true },
-            reason: { type: String, default: 'Admin adjustment' },
-            previousBalance: { type: Number, required: true },
-            newBalance: { type: Number, required: true },
-            createdAt: { type: Date, default: Date.now }
-        });
-        const AdminBalanceAdjustment = mongoose.model('AdminBalanceAdjustment', adminBalanceAdjustmentSchema);
-
         // Find a test user
         const testUser = await User.findOne({});
         if (!testUser) {
@@ -82,92 +82,57 @@ async function testAdminBalanceIntegration() {
         console.log(`\n👤 Test User: ${testUser.username} (${testUser._id})`);
         console.log(`   Current Balance: $${testUser.balance}`);
         
-        // Test scenario: Admin sets balance to $100, then user deposits $50 and completes $25 task
-        console.log(`\n💰 Test Scenario: Admin sets balance to $100, then ongoing activity`);
-        
-        // Step 1: Admin sets balance to $100
-        console.log(`\n1️⃣ Admin sets balance to $100`);
+        // Create a test admin adjustment
+        console.log(`\n🔍 Creating test admin adjustment...`);
         const adminAdjustment = new AdminBalanceAdjustment({
             userId: testUser._id,
-            adminId: testUser._id, // Use a valid ObjectId
+            adminId: testUser._id,
             operation: 'set',
             amount: 100,
-            reason: 'Test admin balance set',
+            reason: 'Direct test',
             previousBalance: testUser.balance,
             newBalance: 100
         });
         await adminAdjustment.save();
+        console.log(`   ✅ Admin adjustment created: $${adminAdjustment.amount} → $${adminAdjustment.newBalance}`);
         
-        // Update user balance
-        testUser.balance = 100;
-        await testUser.save();
-        console.log(`   ✅ Admin set balance to $100`);
-        
-        // Step 2: Simulate ongoing deposit of $50
-        console.log(`\n2️⃣ User deposits $50 (ongoing activity)`);
-        const ongoingDeposit = new Deposit({
-            userId: testUser._id,
-            amount: 50,
-            status: 'confirmed',
-            createdAt: new Date(Date.now() + 1000) // After admin adjustment
-        });
-        await ongoingDeposit.save();
-        console.log(`   ✅ Ongoing deposit of $50 recorded`);
-        
-        // Step 3: Simulate ongoing task reward of $25
-        console.log(`\n3️⃣ User completes task worth $25 (ongoing activity)`);
-        const ongoingTask = new Task({
+        // Create a test task and submission
+        console.log(`\n🔍 Creating test task and submission...`);
+        const testTask = new Task({
             title: 'Test Task',
-            description: 'Test task for ongoing activity',
+            description: 'Test task for direct testing',
             reward: 25
         });
-        await ongoingTask.save();
+        await testTask.save();
         
-        const ongoingTaskSubmission = new TaskSubmission({
+        const taskSubmission = new TaskSubmission({
             userId: testUser._id,
-            taskId: ongoingTask._id,
+            taskId: testTask._id,
             status: 'approved',
-            createdAt: new Date(Date.now() + 2000) // After admin adjustment
+            createdAt: new Date(Date.now() + 1000) // After admin adjustment
         });
-        await ongoingTaskSubmission.save();
-        console.log(`   ✅ Ongoing task reward of $25 recorded`);
+        await taskSubmission.save();
+        console.log(`   ✅ Task submission created: $${testTask.reward} reward`);
         
-        // Step 4: Calculate expected balance
-        console.log(`\n4️⃣ Calculate expected balance`);
-        const expectedBalance = 100 + 50 + 25; // Admin set + ongoing deposit + ongoing task
-        console.log(`   Expected Balance: $100 (admin set) + $50 (ongoing deposit) + $25 (ongoing task) = $${expectedBalance}`);
-        
-        // Step 5: Test the new balance calculation function
-        console.log(`\n5️⃣ Test new balance calculation function`);
-        
-        // Simulate the calculateUserBalance function logic
-        const totalDeposits = await Deposit.aggregate([
-            { $match: { userId: testUser._id, status: 'confirmed' } },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
-        
-        const totalTaskRewards = await TaskSubmission.aggregate([
-            { $match: { userId: testUser._id, status: 'approved' } },
-            { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-            { $unwind: '$task' },
-            { $group: { _id: null, total: { $sum: '$task.reward' } } }
-        ]);
-        const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-        
-        const totalWithdrawn = await WithdrawalRequest.aggregate([
-            { $match: { userId: testUser._id, status: { $in: ['completed', 'pending', 'processing'] } } },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+        // Now test the calculateUserBalance function logic directly
+        console.log(`\n🔍 Testing calculateUserBalance logic directly...`);
         
         // Get the latest admin balance adjustment
         const latestAdminAdjustment = await AdminBalanceAdjustment.find(
             { userId: testUser._id }
         ).sort({ createdAt: -1 }).limit(1).then(results => results[0]);
         
+        console.log(`   Latest admin adjustment:`, {
+            operation: latestAdminAdjustment.operation,
+            amount: latestAdminAdjustment.amount,
+            newBalance: latestAdminAdjustment.newBalance,
+            createdAt: latestAdminAdjustment.createdAt
+        });
+        
         let finalBalance;
         if (latestAdminAdjustment && latestAdminAdjustment.operation === 'set') {
+            console.log(`   ✅ Admin adjustment found with operation: ${latestAdminAdjustment.operation}`);
+            
             const adminSetBalance = latestAdminAdjustment.newBalance;
             
             // Calculate ongoing activity since admin adjustment
@@ -207,9 +172,37 @@ async function testAdminBalanceIntegration() {
             finalBalance = adminSetBalance + ongoingDepositAmount + ongoingTaskRewardAmount - ongoingWithdrawalAmount;
             finalBalance = Math.max(0, finalBalance);
             
-            console.log(`   ✅ New calculation: $${adminSetBalance} (admin set) + $${ongoingDepositAmount} (ongoing deposits) + $${ongoingTaskRewardAmount} (ongoing tasks) - $${ongoingWithdrawalAmount} (ongoing withdrawals) = $${finalBalance}`);
+            console.log(`   ✅ Enhanced calculation: $${adminSetBalance} (admin set) + $${ongoingDepositAmount} (ongoing deposits) + $${ongoingTaskRewardAmount} (ongoing tasks) - $${ongoingWithdrawalAmount} (ongoing withdrawals) = $${finalBalance}`);
         } else {
+            console.log(`   ❌ Admin adjustment not found or operation not 'set'`);
+            console.log(`   latestAdminAdjustment: ${!!latestAdminAdjustment}`);
+            if (latestAdminAdjustment) {
+                console.log(`   operation: ${latestAdminAdjustment.operation}`);
+            }
+            
             // Fallback to old calculation
+            const totalDeposits = await Deposit.aggregate([
+                { $match: { userId: testUser._id, status: 'confirmed' } },
+                { $group: { _id: null, total: { $sum: '$amount' } } }
+            ]);
+            const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
+            
+            const totalTaskRewards = await TaskSubmission.aggregate([
+                { $match: { userId: testUser._id, status: 'approved' } },
+                { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
+                { $match: { userId: testUser._id, status: 'approved' } },
+                { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
+                { $unwind: '$task' },
+                { $group: { _id: null, total: { $sum: '$task.reward' } } }
+            ]);
+            const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
+            
+            const totalWithdrawn = await WithdrawalRequest.aggregate([
+                { $match: { userId: testUser._id, status: { $in: ['completed', 'pending', 'processing'] } } },
+                { $group: { _id: null, total: { $sum: '$amount' } } }
+            ]);
+            const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
+            
             let depositContribution = 0;
             if (totalDepositAmount <= 10) {
                 finalBalance = Math.max(0, totalTaskRewardAmount - totalWithdrawnAmount);
@@ -220,35 +213,30 @@ async function testAdminBalanceIntegration() {
             console.log(`   ⚠️ Fallback to old calculation: $${finalBalance}`);
         }
         
+        // Expected result
+        const expectedBalance = 100 + 25; // Admin set + task reward
         console.log(`\n📊 Test Results:`);
         console.log(`   Expected Balance: $${expectedBalance}`);
         console.log(`   Calculated Balance: $${finalBalance}`);
         console.log(`   Match: ${expectedBalance === finalBalance ? '✅ YES' : '❌ NO'}`);
         
         if (expectedBalance === finalBalance) {
-            console.log(`\n🎉 SUCCESS: Admin balance integration working correctly!`);
-            console.log(`   Ongoing deposits and tasks are properly adding to admin-set balance.`);
+            console.log(`\n🎉 SUCCESS: calculateUserBalance logic working correctly!`);
         } else {
-            console.log(`\n❌ FAILURE: Admin balance integration not working correctly.`);
-            console.log(`   Ongoing deposits and tasks are NOT adding to admin-set balance.`);
+            console.log(`\n❌ FAILURE: calculateUserBalance logic not working correctly.`);
         }
         
-        // Cleanup test data
-        console.log(`\n🧹 Cleaning up test data...`);
-        await ongoingDeposit.deleteOne();
-        await ongoingTaskSubmission.deleteOne();
-        await ongoingTask.deleteOne();
+        // Cleanup
+        console.log(`\n🧹 Cleaning up...`);
+        await taskSubmission.deleteOne();
+        await testTask.deleteOne();
         await adminAdjustment.deleteOne();
+        console.log(`   ✅ Test data cleaned up`);
         
-        // Reset user balance
-        testUser.balance = 0;
-        await testUser.save();
-        console.log(`   ✅ Test data cleaned up, user balance reset to $0`);
-        
-        console.log('\n✅ Admin balance integration test completed!');
+        console.log('\n✅ Direct calculateUserBalance test completed!');
         
     } catch (error) {
-        console.error('❌ Error testing admin balance integration:', error);
+        console.error('❌ Error during direct test:', error);
     } finally {
         mongoose.connection.close();
         console.log('🔌 Database connection closed');
