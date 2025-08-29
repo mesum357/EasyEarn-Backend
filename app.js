@@ -4782,10 +4782,9 @@ async function calculateUserBalance(userId) {
     const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
     
     // Get the latest admin balance adjustment (if any)
-    const latestAdminAdjustment = await AdminBalanceAdjustment.findOne(
-      { userId: userId },
-      { sort: { createdAt: -1 } }
-    );
+    const latestAdminAdjustment = await AdminBalanceAdjustment.find(
+      { userId: userId }
+    ).sort({ createdAt: -1 }).limit(1).then(results => results[0]);
     
     // Calculate base balance from deposits and tasks
     let baseBalance;
