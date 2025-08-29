@@ -2385,7 +2385,7 @@ app.put('/api/admin/users/:id/balance', async (req, res) => {
     // Save the admin balance adjustment record
     const adminAdjustment = new AdminBalanceAdjustment({
       userId: user._id,
-      adminId: req.user?._id || 'admin', // Use authenticated admin ID if available
+      adminId: req.user?._id || user._id, // Use authenticated admin ID if available, fallback to user ID
       operation: operation,
       amount: balance,
       reason: reason,
