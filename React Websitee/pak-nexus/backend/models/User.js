@@ -22,6 +22,7 @@ const userSchema = new mongoose.Schema({
   // Add missing fields for balance calculation
   balance: { type: Number, default: 0 },
   hasDeposited: { type: Boolean, default: false },
+  tasksUnlocked: { type: Boolean, default: false }, // Tasks unlocked after $10 deposit
   referredBy: { type: String }, // Referral code of the user who referred this user
   referralCode: { type: String, unique: true }, // This user's referral code
   referralCount: { type: Number, default: 0 }, // Number of successful referrals

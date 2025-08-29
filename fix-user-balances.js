@@ -24,8 +24,8 @@ async function fixAllUserBalances() {
         
         // Define models
         const User = require('./React Websitee/pak-nexus/backend/models/User');
-        
-        const depositSchema = new mongoose.Schema({
+
+const depositSchema = new mongoose.Schema({
             userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
             amount: { type: Number, required: true },
             status: { type: String, enum: ['pending', 'confirmed', 'rejected'], default: 'pending' },
@@ -60,7 +60,7 @@ async function fixAllUserBalances() {
         });
         const WithdrawalRequest = mongoose.model('WithdrawalRequest', withdrawalRequestSchema);
 
-        // Get all users
+    // Get all users
         const allUsers = await User.find({});
         console.log(`Found ${allUsers.length} users to fix`);
         
@@ -94,14 +94,14 @@ async function fixAllUserBalances() {
             
             // Check if balance needs to be updated
             if (Math.abs(user.balance - correctBalance) > 0.01) { // Allow for small floating point differences
-                const oldBalance = user.balance;
+        const oldBalance = user.balance;
                 user.balance = correctBalance;
-                await user.save();
-                
+        await user.save();
+        
                 console.log(`✅ Fixed balance for ${user.username}: $${oldBalance} → $${correctBalance}`);
                 console.log(`   Deposits: $${totalDepositAmount}, Contribution: $${depositContribution}, Tasks: $${totalTaskRewardAmount}, Withdrawn: $${totalWithdrawnAmount}`);
                 fixedCount++;
-            } else {
+      } else {
                 unchangedCount++;
             }
         }
@@ -112,11 +112,11 @@ async function fixAllUserBalances() {
         console.log(`   Total: ${allUsers.length} users`);
         
         console.log('\n✅ All user balances have been fixed!');
-        
-    } catch (error) {
+
+  } catch (error) {
         console.error('❌ Error fixing user balances:', error);
-    } finally {
-        mongoose.connection.close();
+  } finally {
+    mongoose.connection.close();
         console.log('🔌 Database connection closed');
-    }
+  }
 }
