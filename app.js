@@ -4195,10 +4195,20 @@ app.delete('/api/admin/tasks/:taskId', async (req, res) => {
 // Get task submissions (for admin)
 app.get('/api/admin/task-submissions', async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+
+    // Get total count for pagination
+    const total = await TaskSubmission.countDocuments({});
+    const totalPages = Math.ceil(total / limit);
+
     const submissions = await TaskSubmission.find({})
       .populate('taskId')
       .populate('userId', 'username email')
-      .sort({ submittedAt: -1 });
+      .sort({ submittedAt: -1 })
+      .skip(skip)
+      .limit(limit);
 
     res.json({
       success: true,
@@ -4216,11 +4226,23 @@ app.get('/api/admin/task-submissions', async (req, res) => {
         } : null,
         status: submission.status,
         screenshotUrl: submission.screenshotUrl,
+        url: submission.url,
         notes: submission.notes,
         submittedAt: submission.submittedAt,
         reviewedAt: submission.reviewedAt,
         reviewNotes: submission.reviewNotes
-      }))
+      })),
+      pagination: {
+        currentPage: page,
+        totalPages: totalPages,
+        total: total,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      // Legacy fields for compatibility
+      currentPage: page,
+      totalPages: totalPages,
+      total: total
     });
   } catch (error) {
     console.error('Error fetching task submissions:', error);
