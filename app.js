@@ -1139,6 +1139,7 @@ app.get('/me', async (req, res) => {
         email: req.user.email,
         balance: req.user.balance || 0,
         additionalBalance: req.user.additionalBalance || 0,
+        totalBalance: req.user.totalBalance || 0,
         hasDeposited: req.user.hasDeposited || false,
         tasksUnlocked: req.user.tasksUnlocked || false,
         referralCode: req.user.referralCode
@@ -2402,8 +2403,9 @@ app.put('/api/admin/users/:id/balance', async (req, res) => {
     });
     await adminAdjustment.save();
     
-    // Update user's balance
+    // Update user's balance and recalculate total balance
     user.balance = newBalance;
+    user.totalBalance = newBalance + (user.additionalBalance || 0);
     await user.save();
 
     res.json({
@@ -2459,12 +2461,13 @@ app.put('/api/admin/users/:id/additional-balance', async (req, res) => {
     // Store old additional balance for logging
     const oldAdditionalBalance = user.additionalBalance || 0;
     
-    // Update the additional balance
+    // Update the additional balance and recalculate total balance
     user.additionalBalance = additionalBalance;
+    user.totalBalance = (user.balance || 0) + additionalBalance;
     await user.save();
 
-    // Calculate total balance (current logic + additional balance)
-    const totalBalance = (user.balance || 0) + (user.additionalBalance || 0);
+    // Total balance is now stored in the database
+    const totalBalance = user.totalBalance;
 
     console.log(`💰 Admin updated additional balance for user ${user.username}: $${oldAdditionalBalance} → $${additionalBalance} (Total: $${totalBalance})`);
 
@@ -3807,20 +3810,16 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
     ]);
     const withdrawalCheckWithdrawnAmount = withdrawalCheckWithdrawn.length > 0 ? withdrawalCheckWithdrawn[0].total : 0;
     
-    const withdrawalCheckDepositContribution = Math.max(0, withdrawalCheckDepositAmount - 10);
-    const availableBalance = Math.max(0, withdrawalCheckDepositContribution + withdrawalCheckTaskRewardAmount + (user.additionalBalance || 0) - withdrawalCheckWithdrawnAmount);
+    // Calculate available balance: totalBalance - pending/processing withdrawals
+    const availableBalance = Math.max(0, (user.totalBalance || 0) - withdrawalCheckWithdrawnAmount);
     
     console.log('Balance check for withdrawal:', {
       userId: userId,
-      totalDeposits: withdrawalCheckDepositAmount,
-      depositContribution: withdrawalCheckDepositContribution,
-      totalTaskRewards: withdrawalCheckTaskRewardAmount,
-      additionalBalance: user.additionalBalance || 0,
-      totalWithdrawn: withdrawalCheckWithdrawnAmount,
+      storedTotalBalance: user.totalBalance || 0,
+      pendingWithdrawals: withdrawalCheckWithdrawnAmount,
       availableBalance: availableBalance,
       withdrawalAmount: amount,
-      storedBalance: user.balance,
-      calculation: `(${withdrawalCheckDepositAmount} - 10) + ${withdrawalCheckTaskRewardAmount} + ${user.additionalBalance || 0} - ${withdrawalCheckWithdrawnAmount} = ${withdrawalCheckDepositContribution} + ${withdrawalCheckTaskRewardAmount} + ${user.additionalBalance || 0} - ${withdrawalCheckWithdrawnAmount} = $${availableBalance}`
+      calculation: `totalBalance(${user.totalBalance || 0}) - pendingWithdrawals(${withdrawalCheckWithdrawnAmount}) = $${availableBalance}`
     });
 
     if (availableBalance < amount) {
@@ -3830,10 +3829,8 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
         details: {
           availableBalance: availableBalance,
           requestedAmount: amount,
-          totalDeposits: withdrawalCheckDepositAmount,
-          totalTaskRewards: withdrawalCheckTaskRewardAmount,
-          additionalBalance: user.additionalBalance || 0,
-          totalWithdrawn: withdrawalCheckWithdrawnAmount
+          totalBalance: user.totalBalance || 0,
+          pendingWithdrawals: withdrawalCheckWithdrawnAmount
         }
       });
     }
@@ -3876,7 +3873,8 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
 
     // Update user balance to reflect the new withdrawal request
     const newAvailableBalance = availableBalance - amount;
-    user.balance = newAvailableBalance;
+    // Note: We don't update balance/totalBalance here since withdrawal is still pending
+    // Balance will be updated when withdrawal is confirmed/completed
     await user.save();
     
     console.log('Balance updated after withdrawal request:', {
