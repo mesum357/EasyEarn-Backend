@@ -2146,6 +2146,11 @@ app.put('/api/admin/deposits/:id/confirm', async (req, res) => {
         console.log(`✅ ADMIN SMALL DEPOSIT: Balance = (${totalDeposits} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${user.balance}`);
       }
       
+      // Update total balance after balance calculation
+      const additionalBalance = user.additionalBalance || 0;
+      user.totalBalance = user.balance + additionalBalance;
+      console.log(`💰 DEPOSIT BALANCE UPDATE: User ${user.username} - Balance: $${user.balance}, Additional: $${additionalBalance}, Total: $${user.totalBalance}`);
+      
       await user.save();
       
       console.log(`✅ ADMIN USER UPDATED: ${user.username}`);
@@ -4054,7 +4059,14 @@ app.post('/api/tasks/:taskId/submit', ensureAuthenticated, async (req, res) => {
 // Get all tasks (for admin)
 app.get('/api/admin/tasks', async (req, res) => {
   try {
-    const tasks = await Task.find({}).sort({ createdAt: -1 });
+    // Only show tasks that are not hidden from admin panel
+    const tasks = await Task.find({ 
+      $or: [
+        { hiddenFromAdmin: { $exists: false } }, // Backward compatibility for existing tasks
+        { hiddenFromAdmin: false }
+      ]
+    }).sort({ createdAt: -1 });
+    
     res.json({
       success: true,
       tasks: tasks.map(task => ({
@@ -4168,7 +4180,7 @@ app.put('/api/admin/tasks/:taskId', async (req, res) => {
   }
 });
 
-// Delete task (for admin)
+// Delete task (for admin) - Hide from admin panel instead of deleting from database
 app.delete('/api/admin/tasks/:taskId', async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -4178,17 +4190,18 @@ app.delete('/api/admin/tasks/:taskId', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Task not found' });
     }
 
-    // Delete task and all related submissions
-    await Task.findByIdAndDelete(taskId);
-    await TaskSubmission.deleteMany({ taskId });
+    // Hide task from admin panel instead of deleting it
+    // This preserves the task in database for existing submissions and historical data
+    task.hiddenFromAdmin = true;
+    await task.save();
 
     res.json({
       success: true,
-      message: 'Task deleted successfully'
+      message: 'Task hidden from admin panel successfully'
     });
   } catch (error) {
-    console.error('Error deleting task:', error);
-    res.status(500).json({ success: false, error: 'Failed to delete task' });
+    console.error('Error hiding task:', error);
+    res.status(500).json({ success: false, error: 'Failed to hide task' });
   }
 });
 
@@ -4273,20 +4286,27 @@ app.put('/api/admin/task-submissions/:submissionId/review', async (req, res) => 
     submission.reviewedAt = new Date();
     submission.reviewNotes = reviewNotes;
 
-    // If approved, add reward to user's balance and recalculate properly
+    // If approved, add reward to user's balance and update totalBalance properly
     if (status === 'approved' && submission.userId && submission.taskId) {
       const user = await User.findById(submission.userId._id);
       if (user) {
         console.log(`✅ TASK APPROVED: Adding $${submission.taskId.reward} to user ${user.username} balance`);
         console.log(`   Previous balance: $${user.balance}`);
+        console.log(`   Previous total balance: $${user.totalBalance}`);
         
         // Use the enhanced calculateUserBalance function that integrates admin adjustments
         const balanceInfo = await calculateUserBalance(user._id);
         user.balance = balanceInfo.calculatedBalance;
+        
+        // Recalculate total balance (current balance + additional balance)
+        const additionalBalance = user.additionalBalance || 0;
+        user.totalBalance = user.balance + additionalBalance;
+        
         await user.save();
         
         console.log(`   Enhanced balance calculation:`, balanceInfo);
         console.log(`   New balance: $${user.balance}`);
+        console.log(`   New total balance: $${user.totalBalance} (balance: $${user.balance} + additional: $${additionalBalance})`);
       }
     }
 
@@ -4427,6 +4447,11 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
       // Use the enhanced calculateUserBalance function that integrates admin adjustments
       const balanceInfo = await calculateUserBalance(user._id);
       user.balance = balanceInfo.calculatedBalance;
+      
+      // Recalculate total balance (current balance + additional balance)
+      const additionalBalance = user.additionalBalance || 0;
+      user.totalBalance = user.balance + additionalBalance;
+      
       await user.save();
       
       console.log('Balance recalculated after admin processing:', {
@@ -4434,7 +4459,9 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
         withdrawalId: requestId,
         status: status,
         balanceInfo: balanceInfo,
-        newBalance: user.balance
+        newBalance: user.balance,
+        newTotalBalance: user.totalBalance,
+        additionalBalance: additionalBalance
       });
     }
 
