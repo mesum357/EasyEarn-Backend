@@ -1138,6 +1138,7 @@ app.get('/me', async (req, res) => {
         username: req.user.username,
         email: req.user.email,
         balance: req.user.balance || 0,
+        additionalBalance: req.user.additionalBalance || 0,
         hasDeposited: req.user.hasDeposited || false,
         tasksUnlocked: req.user.tasksUnlocked || false,
         referralCode: req.user.referralCode
