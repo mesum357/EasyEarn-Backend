@@ -250,3 +250,4 @@ async function runBalanceFix() {
         process.exit(1);
     }
 }
+

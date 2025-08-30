@@ -2428,6 +2428,80 @@ app.put('/api/admin/users/:id/balance', async (req, res) => {
   }
 });
 
+// Admin: Update user additional balance
+app.put('/api/admin/users/:id/additional-balance', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { additionalBalance, reason = 'Admin adjustment' } = req.body;
+
+    // Validate additionalBalance input
+    if (typeof additionalBalance !== 'number') {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Additional balance must be a valid number' 
+      });
+    }
+
+    // Additional balance should be non-negative
+    if (additionalBalance < 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Additional balance cannot be negative' 
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Store old additional balance for logging
+    const oldAdditionalBalance = user.additionalBalance || 0;
+    
+    // Update the additional balance
+    user.additionalBalance = additionalBalance;
+    await user.save();
+
+    // Calculate total balance (current logic + additional balance)
+    const totalBalance = (user.balance || 0) + (user.additionalBalance || 0);
+
+    console.log(`💰 Admin updated additional balance for user ${user.username}: $${oldAdditionalBalance} → $${additionalBalance} (Total: $${totalBalance})`);
+
+    // Create admin adjustment record for additional balance
+    const adminAdjustment = new AdminBalanceAdjustment({
+      userId: user._id,
+      adminId: null, // We don't have admin authentication in this endpoint
+      operation: 'set',
+      amount: additionalBalance,
+      reason: `Additional balance: ${reason}`,
+      previousBalance: oldAdditionalBalance,
+      newBalance: additionalBalance
+    });
+    
+    await adminAdjustment.save();
+
+    res.json({
+      success: true,
+      message: 'Additional balance updated successfully',
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        balance: user.balance,
+        additionalBalance: user.additionalBalance,
+        totalBalance: totalBalance
+      },
+      oldAdditionalBalance: oldAdditionalBalance,
+      newAdditionalBalance: additionalBalance,
+      amountChanged: additionalBalance - oldAdditionalBalance,
+      adjustmentId: adminAdjustment._id
+    });
+  } catch (err) {
+    console.error('Error updating user additional balance:', err);
+    res.status(500).json({ error: 'Failed to update additional balance', details: err.message });
+  }
+});
+
 // Notification Schema
 const notificationSchema = new mongoose.Schema({
   title: String,
@@ -3733,18 +3807,19 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
     const withdrawalCheckWithdrawnAmount = withdrawalCheckWithdrawn.length > 0 ? withdrawalCheckWithdrawn[0].total : 0;
     
     const withdrawalCheckDepositContribution = Math.max(0, withdrawalCheckDepositAmount - 10);
-    const availableBalance = Math.max(0, withdrawalCheckDepositContribution + withdrawalCheckTaskRewardAmount - withdrawalCheckWithdrawnAmount);
+    const availableBalance = Math.max(0, withdrawalCheckDepositContribution + withdrawalCheckTaskRewardAmount + (user.additionalBalance || 0) - withdrawalCheckWithdrawnAmount);
     
     console.log('Balance check for withdrawal:', {
       userId: userId,
       totalDeposits: withdrawalCheckDepositAmount,
       depositContribution: withdrawalCheckDepositContribution,
       totalTaskRewards: withdrawalCheckTaskRewardAmount,
+      additionalBalance: user.additionalBalance || 0,
       totalWithdrawn: withdrawalCheckWithdrawnAmount,
       availableBalance: availableBalance,
       withdrawalAmount: amount,
       storedBalance: user.balance,
-      calculation: `(${withdrawalCheckDepositAmount} - 10) + ${withdrawalCheckTaskRewardAmount} - ${withdrawalCheckWithdrawnAmount} = ${withdrawalCheckDepositContribution} + ${withdrawalCheckTaskRewardAmount} - ${withdrawalCheckWithdrawnAmount} = $${availableBalance}`
+      calculation: `(${withdrawalCheckDepositAmount} - 10) + ${withdrawalCheckTaskRewardAmount} + ${user.additionalBalance || 0} - ${withdrawalCheckWithdrawnAmount} = ${withdrawalCheckDepositContribution} + ${withdrawalCheckTaskRewardAmount} + ${user.additionalBalance || 0} - ${withdrawalCheckWithdrawnAmount} = $${availableBalance}`
     });
 
     if (availableBalance < amount) {
@@ -3756,6 +3831,7 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
           requestedAmount: amount,
           totalDeposits: withdrawalCheckDepositAmount,
           totalTaskRewards: withdrawalCheckTaskRewardAmount,
+          additionalBalance: user.additionalBalance || 0,
           totalWithdrawn: withdrawalCheckWithdrawnAmount
         }
       });
