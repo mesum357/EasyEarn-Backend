@@ -923,6 +923,9 @@ async function checkAndCompleteReferrals(userId) {
             await referral.save();
             
             console.log(`✅ Referral completed: User ${user.username} (${userId}) has deposited $${totalDepositAmount}, completing referral from ${referral.referrer}`);
+            
+            // Check if referrer should have their withdrawal timer reset
+            await resetWithdrawalTimer(referral.referrer);
         }
     } catch (error) {
         console.error('Error checking and completing referrals:', error);
@@ -1910,7 +1913,13 @@ app.post('/api/admin/participations/:id/approve', async (req, res) => {
       req.params.id,
       { submittedButton: true },
       { new: true }
-    );
+    ).populate('user');
+    
+    console.log(`✅ Lucky draw participation approved for user: ${participation.user._id}`);
+    
+    // Check if user should have their withdrawal timer reset after lucky draw approval
+    await resetWithdrawalTimer(participation.user._id);
+    
     res.json({ success: true, participation });
   } catch (err) {
     res.status(500).json({ error: 'Failed to approve participation', details: err.message });
@@ -3733,6 +3742,11 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
       requirement.requirements.deposit.met &&
       requirement.requirements.luckyDraw.met;
 
+    // Check if timer should be reset due to completing referral + lucky draw
+    if (requirement.requirements.referrals.met && requirement.requirements.luckyDraw.met) {
+      await resetWithdrawalTimer(userId);
+    }
+
     console.log('Requirements status:', {
       referrals: requirement.requirements.referrals,
       deposit: requirement.requirements.deposit,
@@ -4485,10 +4499,17 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
 
 // ==================== ADMIN LUCKY DRAW ENDPOINTS ====================
 
-// Get all lucky draws (for admin)
+// Get all lucky draws (for admin) - Exclude hidden lucky draws
 app.get('/api/admin/lucky-draws', async (req, res) => {
   try {
-    const luckyDraws = await LuckyDraw.find({}).sort({ createdAt: -1 });
+    // Only show lucky draws that are not hidden from admin panel
+    const luckyDraws = await LuckyDraw.find({ 
+      $or: [
+        { hiddenFromAdmin: { $exists: false } }, // Backward compatibility for existing lucky draws
+        { hiddenFromAdmin: false }
+      ]
+    }).sort({ createdAt: -1 });
+    
     res.json({
       success: true,
       luckyDraws: luckyDraws
@@ -4533,23 +4554,28 @@ app.post('/api/admin/lucky-draws', async (req, res) => {
   }
 });
 
-// Delete lucky draw (for admin)
+// Delete lucky draw (for admin) - Hide from admin panel instead of deleting from database
 app.delete('/api/admin/lucky-draws/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const luckyDraw = await LuckyDraw.findByIdAndDelete(id);
+    const luckyDraw = await LuckyDraw.findById(id);
     
     if (!luckyDraw) {
       return res.status(404).json({ success: false, error: 'Lucky draw not found' });
     }
     
+    // Hide lucky draw from admin panel instead of deleting it
+    // This preserves the lucky draw in database for existing participations and historical data
+    luckyDraw.hiddenFromAdmin = true;
+    await luckyDraw.save();
+    
     res.json({
       success: true,
-      message: 'Lucky draw deleted successfully'
+      message: 'Lucky draw hidden from admin panel successfully'
     });
   } catch (error) {
-    console.error('Error deleting lucky draw:', error);
-    res.status(500).json({ error: 'Failed to delete lucky draw' });
+    console.error('Error hiding lucky draw:', error);
+    res.status(500).json({ error: 'Failed to hide lucky draw' });
   }
 });
 
@@ -4719,6 +4745,94 @@ app.post('/api/lucky-draws/:id/participate', ensureAuthenticated, async (req, re
     res.status(500).json({ success: false, error: 'Failed to participate in lucky draw' });
   }
 });
+
+// ==================== WITHDRAWAL TIMER RESET FUNCTIONS ====================
+
+// Function to reset 15-day withdrawal timer when user completes referral + lucky draw
+async function resetWithdrawalTimer(userId) {
+  try {
+    console.log(`🔄 Checking timer reset for user: ${userId}`);
+    
+    const now = new Date();
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log(`❌ User not found for timer reset: ${userId}`);
+      return false;
+    }
+
+    // Get current withdrawal requirement period
+    const currentRequirement = await WithdrawalRequirement.findOne({
+      userId,
+      periodStart: { $lte: now },
+      periodEnd: { $gte: now }
+    });
+
+    if (!currentRequirement) {
+      console.log(`❌ No current withdrawal requirement found for user: ${userId}`);
+      return false;
+    }
+
+    // Check if user has completed both referral and lucky draw in current period
+    const hasCompletedReferral = currentRequirement.requirements.referrals.met;
+    const hasCompletedLuckyDraw = currentRequirement.requirements.luckyDraw.met;
+
+    console.log(`📊 Timer reset check for ${user.username}:`, {
+      hasCompletedReferral,
+      hasCompletedLuckyDraw,
+      periodStart: currentRequirement.periodStart,
+      periodEnd: currentRequirement.periodEnd
+    });
+
+    // If user has completed both referral and lucky draw, reset timer
+    if (hasCompletedReferral && hasCompletedLuckyDraw) {
+      console.log(`✅ User ${user.username} has completed both requirements - resetting 15-day timer`);
+
+      // Create new 15-day period starting from now
+      const newPeriodStart = new Date(now);
+      newPeriodStart.setHours(0, 0, 0, 0);
+      
+      const newPeriodEnd = new Date(newPeriodStart);
+      newPeriodEnd.setDate(newPeriodEnd.getDate() + 15);
+      newPeriodEnd.setHours(23, 59, 59, 999);
+
+      // End current period early
+      currentRequirement.periodEnd = new Date(now);
+      currentRequirement.timerReset = true;
+      currentRequirement.resetAt = now;
+      await currentRequirement.save();
+
+      // Create new withdrawal requirement period
+      const newRequirement = new WithdrawalRequirement({
+        userId,
+        periodStart: newPeriodStart,
+        periodEnd: newPeriodEnd,
+        requirements: {
+          referrals: { required: 1, completed: 0, met: false },
+          deposit: { required: 10, completed: 0, met: false },
+          luckyDraw: { required: 1, completed: 0, met: false }
+        },
+        previousPeriodId: currentRequirement._id // Link to previous period
+      });
+
+      await newRequirement.save();
+
+      console.log(`🎉 Timer reset successful for ${user.username}:`, {
+        oldPeriodEnd: currentRequirement.periodEnd,
+        newPeriodStart: newPeriodStart,
+        newPeriodEnd: newPeriodEnd
+      });
+
+      return true;
+    } else {
+      console.log(`⏳ User ${user.username} has not completed both requirements yet`);
+      return false;
+    }
+
+  } catch (error) {
+    console.error('Error resetting withdrawal timer:', error);
+    return false;
+  }
+}
 
 // ==================== AUTOMATIC CLEANUP ====================
 
