@@ -16,7 +16,7 @@ const multer = require('multer');
 const path = require('path');
 
 // Import models
-const User = require('./React Websitee/pak-nexus/backend/models/User');
+const User = require('./models/User');
 
 // mongodb+srv://mesum357:pDliM118811@cluster0.h3knh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
