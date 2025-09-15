@@ -475,7 +475,7 @@ app.get('/debug-session-store', async (req, res) => {
     // Get current session info
     const currentSession = req.session;
     const currentSessionID = req.sessionID;
-    
+    // Check
     res.json({
       message: 'Session store debug info',
       currentSessionID: currentSessionID,
