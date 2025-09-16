@@ -16,7 +16,7 @@ const multer = require('multer');
 const path = require('path');
 
 // Import models
-const User = require('./models/User');
+const User = require('./React Websitee/pak-nexus/backend/models/User');
 
 // mongodb+srv://mesum357:pDliM118811@cluster0.h3knh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
@@ -48,8 +48,7 @@ app.set('trust proxy', 1);
 const ALLOWED_ORIGINS = [
   // Production URLs - Vercel
   'https://easyearn-frontend4.vercel.app',
-  'https://easyearn-frontend.onrender.com',
-    'https://easyearn-frontend8.vercel.app',
+  'https://easyearn-frontend8.vercel.app',
   'https://easyearn-frontend5-5s029wzy7-ahmads-projects-9a0217f0.vercel.app',
   'https://easyearn-adminpanel2.vercel.app',
   // Railway deployments
@@ -206,43 +205,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Single MongoStore instance with enhanced configuration
+// Single MongoStore instance
 const sessionStore = MongoStore.create({
   mongoUrl: process.env.MONGODB_URI,
   collectionName: 'sessions',
   ttl: 60 * 60 * 24 * 14, // 14 days
   autoRemove: 'native',
-  stringify: false,
-  touchAfter: 24 * 3600, // Only update session once per day
-  // Remove crypto configuration to fix encryption issues
-  // crypto: {
-  //   secret: process.env.SESSION_SECRET || 'fallback-secret-key-change-in-production'
-  // }
-});
-
-// Add session store event listeners for debugging
-sessionStore.on('connect', () => {
-  console.log('✅ MongoStore connected successfully');
-});
-
-sessionStore.on('disconnect', () => {
-  console.log('❌ MongoStore disconnected');
-});
-
-sessionStore.on('error', (error) => {
-  console.error('💥 MongoStore error:', error);
-});
-
-sessionStore.on('create', (sessionId) => {
-  console.log('🆕 Session created:', sessionId);
-});
-
-sessionStore.on('destroy', (sessionId) => {
-  console.log('🗑️ Session destroyed:', sessionId);
-});
-
-sessionStore.on('touch', (sessionId) => {
-  console.log('👆 Session touched:', sessionId);
+  stringify: false
 });
 
 // Session configuration - single source of truth
@@ -255,10 +224,9 @@ app.use(session({
   cookie: {
     httpOnly: true,
     maxAge: Number(process.env.SESSION_MAX_AGE || 7 * 24 * 60 * 60 * 1000), // 7 days default
-    secure: process.env.NODE_ENV === 'production', // Secure in production (HTTPS)
+    secure: process.env.NODE_ENV === 'production', // Always secure in production
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
-    path: '/',
-    domain: process.env.NODE_ENV === 'production' ? undefined : undefined // Let browser set domain
+    path: '/'
   }
 }));
 
@@ -310,12 +278,9 @@ passport.use(new LocalStrategy({
     }
 }));
 
-// Session recovery middleware - improved for better persistence
+// Session recovery middleware
 app.use(async (req, res, next) => {
   try {
-    // Log session state for debugging
-    console.log(`🔍 Session Debug - ID: ${req.sessionID}, Has Session: ${!!req.session}, Session Keys: ${req.session ? Object.keys(req.session).join(', ') : 'none'}`);
-    
     // If session is empty but cookie exists, try to recover
     if (!req.session || Object.keys(req.session).length === 0) {
       const sessionName = process.env.SESSION_NAME || 'easyearn.sid';
@@ -358,14 +323,6 @@ app.use(async (req, res, next) => {
     console.error('Session recovery middleware error:', error);
     next();
   }
-});
-
-// Add session ID header to all responses for debugging
-app.use((req, res, next) => {
-  if (req.sessionID) {
-    res.setHeader('X-Session-ID', req.sessionID);
-  }
-  next();
 });
 
 // JWT verification middleware (kept for backward compatibility)
@@ -426,9 +383,6 @@ app.get('/test-session', (req, res) => {
   }
   req.session.views++;
   
-  // Set a test value to verify persistence
-  req.session.testValue = `Test value set at ${new Date().toISOString()}`;
-  
   res.json({
     message: 'Session test',
     views: req.session.views,
@@ -437,98 +391,8 @@ app.get('/test-session', (req, res) => {
     cookieSecure: req.session.cookie.secure,
     cookieSameSite: req.session.cookie.sameSite,
     cookies: req.headers.cookie,
-    origin: req.headers.origin,
-    testValue: req.session.testValue,
-    sessionData: Object.keys(req.session)
+    origin: req.headers.origin
   });
-});
-
-// Session persistence test endpoint
-app.get('/test-session-persistence', (req, res) => {
-  const currentSessionID = req.sessionID;
-  const hasPreviousViews = req.session.views || 0;
-  const hasTestValue = req.session.testValue || 'No test value';
-  
-  res.json({
-    message: 'Session persistence test',
-    currentSessionID: currentSessionID,
-    previousViews: hasPreviousViews,
-    testValue: hasTestValue,
-    sessionKeys: Object.keys(req.session),
-    cookies: req.headers.cookie || 'No cookies',
-    sessionExists: !!req.session,
-    sessionModified: req.session ? req.session.cookie.maxAge : 'No session'
-  });
-});
-
-// Session debugging endpoint
-app.get('/debug-session-store', async (req, res) => {
-  try {
-    // Get all sessions from the store
-    const sessions = await new Promise((resolve, reject) => {
-      sessionStore.all((err, sessions) => {
-        if (err) reject(err);
-        else resolve(sessions);
-      });
-    });
-    
-    // Get current session info
-    const currentSession = req.session;
-    const currentSessionID = req.sessionID;
-    // Check
-    res.json({
-      message: 'Session store debug info',
-      currentSessionID: currentSessionID,
-      currentSession: currentSession,
-      totalSessionsInStore: Object.keys(sessions).length,
-      sessionStoreInfo: {
-        hasStore: !!sessionStore,
-        storeType: sessionStore.constructor.name,
-        mongoUrl: process.env.MONGODB_URI ? 'Set' : 'Not set',
-        collectionName: 'sessions'
-      },
-      sampleSessions: Object.keys(sessions).slice(0, 5).map(sid => ({
-        sessionId: sid,
-        hasData: !!sessions[sid],
-        dataKeys: sessions[sid] ? Object.keys(sessions[sid]) : []
-      }))
-    });
-  } catch (error) {
-    console.error('Session store debug error:', error);
-    res.status(500).json({
-      error: 'Failed to get session store info',
-      details: error.message
-    });
-  }
-});
-
-// Session cleanup endpoint (admin only)
-app.post('/api/admin/clear-sessions', async (req, res) => {
-  try {
-    console.log('🧹 ADMIN: Clearing all sessions...');
-    
-    // Clear all sessions from the store
-    await new Promise((resolve, reject) => {
-      sessionStore.clear((err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-    
-    console.log('✅ All sessions cleared successfully');
-    res.json({
-      success: true,
-      message: 'All sessions have been cleared',
-      timestamp: new Date()
-    });
-  } catch (error) {
-    console.error('❌ Error clearing sessions:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to clear sessions',
-      details: error.message
-    });
-  }
 });
 
 // Debug endpoint for cross-origin cookie testing (simplified)
@@ -895,19 +759,7 @@ function generateReferralCode() {
 async function checkAndCompleteReferrals(userId) {
     try {
         const user = await User.findById(userId);
-        if (!user) {
-            return; // User not found
-        }
-
-        // Check if user has deposited $10 or more (not just hasDeposited flag)
-        const totalDeposits = await Deposit.aggregate([
-            { $match: { userId: userId, status: 'confirmed' } },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
-
-        if (totalDepositAmount < 10) {
-            console.log(`Referral not completed: User ${user.username} (${userId}) has only deposited $${totalDepositAmount}, needs $10+`);
+        if (!user || !user.hasDeposited) {
             return; // User hasn't deposited $10 yet
         }
 
@@ -922,10 +774,7 @@ async function checkAndCompleteReferrals(userId) {
             referral.status = 'completed';
             await referral.save();
             
-            console.log(`✅ Referral completed: User ${user.username} (${userId}) has deposited $${totalDepositAmount}, completing referral from ${referral.referrer}`);
-            
-            // Check if referrer should have their withdrawal timer reset
-            await resetWithdrawalTimer(referral.referrer);
+            console.log(`Referral completed: User ${user.username} (${userId}) has deposited $10, completing referral from ${referral.referrer}`);
         }
     } catch (error) {
         console.error('Error checking and completing referrals:', error);
@@ -1079,10 +928,6 @@ app.post("/login", function(req, res, next) {
                             _id: user._id, 
                             email: user.email, 
                             username: user.username 
-                        },
-                        session: {
-                            id: req.sessionID,
-                            cookie: req.session.cookie
                         }
                     });
                 });
@@ -1141,8 +986,6 @@ app.get('/me', async (req, res) => {
         username: req.user.username,
         email: req.user.email,
         balance: req.user.balance || 0,
-        additionalBalance: req.user.additionalBalance || 0,
-        totalBalance: req.user.totalBalance || 0,
         hasDeposited: req.user.hasDeposited || false,
         tasksUnlocked: req.user.tasksUnlocked || false,
         referralCode: req.user.referralCode
@@ -1679,97 +1522,30 @@ app.put('/api/deposits/:id/confirm', ensureAuthenticated, async (req, res) => {
       const previousBalance = user.balance;
       
       if (isFirstDeposit && isMinimumAmount) {
-        // First deposit of $10+ unlocks tasks but doesn't count toward balance
+        // First deposit of $10+ unlocks tasks but doesn't add to balance
         user.hasDeposited = true;
-        user.tasksUnlocked = true; // Unlock tasks for $10+ deposits
-        // Calculate balance: (total deposits - $10) + task rewards - total withdrawals
+        // Balance calculation: total deposits - 10
         const totalConfirmedDeposits = await Deposit.aggregate([
           { $match: { userId: deposit.userId, status: 'confirmed' } },
           { $group: { _id: null, total: { $sum: '$amount' } } }
         ]);
         const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        
-        // Get total task rewards
-        const totalTaskRewards = await TaskSubmission.aggregate([
-          { $match: { userId: deposit.userId, status: 'approved' } },
-          { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-          { $unwind: '$task' },
-          { $group: { _id: null, total: { $sum: '$task.reward' } } }
-        ]);
-        const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-        
-        // Get total confirmed withdrawals only (not pending/processing)
-        const totalWithdrawn = await WithdrawalRequest.aggregate([
-          { $match: { userId: deposit.userId, status: 'completed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-        
-        // Calculate balance: (deposits - $10) + task rewards - withdrawals
-        const depositContribution = Math.max(0, totalDeposits - 10); // Only deposits beyond $10 count
-        user.balance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
-        console.log(`✅ FIRST DEPOSIT: Tasks unlocked! Balance = (${totalDeposits} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${user.balance}`);
+        user.balance = Math.max(0, totalDeposits - 10);
+        console.log(`✅ FIRST DEPOSIT: Tasks unlocked! Balance = ${totalDeposits} - 10 = $${user.balance}`);
       } else if (!isFirstDeposit) {
-        // Subsequent deposits add to balance (deposits beyond $10 count)
+        // Subsequent deposits add to balance normally
         const totalConfirmedDeposits = await Deposit.aggregate([
           { $match: { userId: deposit.userId, status: 'confirmed' } },
           { $group: { _id: null, total: { $sum: '$amount' } } }
         ]);
         const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        
-        // Get total task rewards
-        const totalTaskRewards = await TaskSubmission.aggregate([
-          { $match: { userId: deposit.userId, status: 'approved' } },
-          { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-          { $unwind: '$task' },
-          { $group: { _id: null, total: { $sum: '$task.reward' } } }
-        ]);
-        const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-        
-        // Get total confirmed withdrawals only (not pending/processing)
-        const totalWithdrawn = await WithdrawalRequest.aggregate([
-          { $match: { userId: deposit.userId, status: 'completed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-        
-        // Calculate balance: (deposits - $10) + task rewards - withdrawals
-        const depositContribution = Math.max(0, totalDeposits - 10); // Only deposits beyond $10 count
-        user.balance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
+        user.balance = Math.max(0, totalDeposits - 10);
         user.hasDeposited = true; // Ensure tasks remain unlocked
-        user.tasksUnlocked = totalDeposits >= 10; // Ensure tasks are unlocked if total deposits >= $10
-        console.log(`✅ SUBSEQUENT DEPOSIT: Balance = (${totalDeposits} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${user.balance}`);
+        console.log(`✅ SUBSEQUENT DEPOSIT: Balance = ${totalDeposits} - 10 = $${user.balance}`);
       } else {
         // First deposit but less than $10 - doesn't unlock tasks
         console.log(`⚠️ FIRST DEPOSIT TOO SMALL: $${deposit.amount} < $10, tasks remain locked`);
-        // Use proper balance calculation for small deposits too
-        const totalConfirmedDeposits = await Deposit.aggregate([
-          { $match: { userId: deposit.userId, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        
-        // Get total task rewards
-        const totalTaskRewards = await TaskSubmission.aggregate([
-          { $match: { userId: deposit.userId, status: 'approved' } },
-          { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-          { $unwind: '$task' },
-          { $group: { _id: null, total: { $sum: '$task.reward' } } }
-        ]);
-        const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-        
-        // Get total confirmed withdrawals only (not pending/processing)
-        const totalWithdrawn = await WithdrawalRequest.aggregate([
-          { $match: { userId: deposit.userId, status: 'completed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-        
-        // Calculate balance: (deposits - $10) + task rewards - withdrawals
-        const depositContribution = Math.max(0, totalDeposits - 10); // Only deposits beyond $10 count
-        user.balance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
-        user.tasksUnlocked = totalDeposits >= 10; // Unlock tasks if total deposits reach $10
-        console.log(`✅ SMALL DEPOSIT: Balance = (${totalDeposits} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${user.balance}`);
+        user.balance += deposit.amount; // Add to balance normally
       }
       
       await user.save();
@@ -1913,13 +1689,7 @@ app.post('/api/admin/participations/:id/approve', async (req, res) => {
       req.params.id,
       { submittedButton: true },
       { new: true }
-    ).populate('user');
-    
-    console.log(`✅ Lucky draw participation approved for user: ${participation.user._id}`);
-    
-    // Check if user should have their withdrawal timer reset after lucky draw approval
-    await resetWithdrawalTimer(participation.user._id);
-    
+    );
     res.json({ success: true, participation });
   } catch (err) {
     res.status(500).json({ error: 'Failed to approve participation', details: err.message });
@@ -2062,103 +1832,31 @@ app.put('/api/admin/deposits/:id/confirm', async (req, res) => {
       const previousBalance = user.balance;
       
       if (isFirstDeposit && isMinimumAmount) {
-        // First deposit of $10+ unlocks tasks but doesn't count toward balance
+        // First deposit of $10+ unlocks tasks but doesn't add to balance
         user.hasDeposited = true;
-        user.tasksUnlocked = true; // Unlock tasks for $10+ deposits
-        // Calculate balance: (total deposits - $10) + task rewards - total withdrawals
+        // Balance calculation: total deposits - 10
         const totalConfirmedDeposits = await Deposit.aggregate([
           { $match: { userId: deposit.userId, status: 'confirmed' } },
           { $group: { _id: null, total: { $sum: '$amount' } } }
         ]);
         const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        
-        // Get total task rewards
-        const totalTaskRewards = await TaskSubmission.aggregate([
-          { $match: { userId: deposit.userId, status: 'approved' } },
-          { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-          { $unwind: '$task' },
-          { $group: { _id: null, total: { $sum: '$task.reward' } } }
-        ]);
-        const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-        
-        // Get total confirmed withdrawals only (not pending/processing)
-        const totalWithdrawn = await WithdrawalRequest.aggregate([
-          { $match: { userId: deposit.userId, status: 'completed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-        
-        // Calculate balance: (deposits - $10) + task rewards - withdrawals
-        const depositContribution = Math.max(0, totalDeposits - 10); // Only deposits beyond $10 count
-        user.balance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
-        console.log(`✅ ADMIN FIRST DEPOSIT: Tasks unlocked! Balance = (${totalDeposits} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${user.balance}`);
+        user.balance = Math.max(0, totalDeposits - 10);
+        console.log(`✅ ADMIN FIRST DEPOSIT: Tasks unlocked! Balance = ${totalDeposits} - 10 = $${user.balance}`);
       } else if (!isFirstDeposit) {
-        // Subsequent deposits add to balance (deposits beyond $10 count)
+        // Subsequent deposits add to balance normally
         const totalConfirmedDeposits = await Deposit.aggregate([
           { $match: { userId: deposit.userId, status: 'confirmed' } },
           { $group: { _id: null, total: { $sum: '$amount' } } }
         ]);
         const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        
-        // Get total task rewards
-        const totalTaskRewards = await TaskSubmission.aggregate([
-          { $match: { userId: deposit.userId, status: 'approved' } },
-          { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-          { $unwind: '$task' },
-          { $group: { _id: null, total: { $sum: '$task.reward' } } }
-        ]);
-        const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-        
-        // Get total confirmed withdrawals only (not pending/processing)
-        const totalWithdrawn = await WithdrawalRequest.aggregate([
-          { $match: { userId: deposit.userId, status: 'completed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-        
-        // Calculate balance: (deposits - $10) + task rewards - withdrawals
-        const depositContribution = Math.max(0, totalDeposits - 10); // Only deposits beyond $10 count
-        user.balance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
+        user.balance = Math.max(0, totalDeposits - 10);
         user.hasDeposited = true; // Ensure tasks remain unlocked
-        user.tasksUnlocked = totalDeposits >= 10; // Ensure tasks are unlocked if total deposits >= $10
-        console.log(`✅ ADMIN SUBSEQUENT DEPOSIT: Balance = (${totalDeposits} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${user.balance}`);
+        console.log(`✅ ADMIN SUBSEQUENT DEPOSIT: Balance = ${totalDeposits} - 10 = $${user.balance}`);
       } else {
         // First deposit but less than $10 - doesn't unlock tasks
         console.log(`⚠️ ADMIN FIRST DEPOSIT TOO SMALL: $${deposit.amount} < $10, tasks remain locked`);
-        // Use proper balance calculation for small deposits too
-        const totalConfirmedDeposits = await Deposit.aggregate([
-          { $match: { userId: deposit.userId, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        
-        // Get total task rewards
-        const totalTaskRewards = await TaskSubmission.aggregate([
-          { $match: { userId: deposit.userId, status: 'approved' } },
-          { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-          { $unwind: '$task' },
-          { $group: { _id: null, total: { $sum: '$task.reward' } } }
-        ]);
-        const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-        
-        // Get total confirmed withdrawals only (not pending/processing)
-        const totalWithdrawn = await WithdrawalRequest.aggregate([
-          { $match: { userId: deposit.userId, status: 'completed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-        
-        // Calculate balance: (deposits - $10) + task rewards - withdrawals
-        const depositContribution = Math.max(0, totalDeposits - 10); // Only deposits beyond $10 count
-        user.balance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
-        user.tasksUnlocked = totalDeposits >= 10; // Unlock tasks if total deposits reach $10
-        console.log(`✅ ADMIN SMALL DEPOSIT: Balance = (${totalDeposits} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${user.balance}`);
+        user.balance += deposit.amount; // Add to balance normally
       }
-      
-      // Update total balance after balance calculation
-      const additionalBalance = user.additionalBalance || 0;
-      user.totalBalance = user.balance + additionalBalance;
-      console.log(`💰 DEPOSIT BALANCE UPDATE: User ${user.username} - Balance: $${user.balance}, Additional: $${additionalBalance}, Total: $${user.totalBalance}`);
       
       await user.save();
       
@@ -2356,167 +2054,6 @@ app.put('/api/admin/users/:id/deactivate', async (req, res) => {
   } catch (err) {
     console.error('Error deactivating user:', err);
     res.status(500).json({ error: 'Failed to deactivate user', details: err.message });
-  }
-});
-
-// Admin Balance Adjustment Schema
-const adminBalanceAdjustmentSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  operation: { type: String, enum: ['set', 'add'], required: true },
-  amount: { type: Number, required: true },
-  reason: { type: String, default: 'Admin adjustment' },
-  previousBalance: { type: Number, required: true },
-  newBalance: { type: Number, required: true },
-  createdAt: { type: Date, default: Date.now }
-});
-const AdminBalanceAdjustment = mongoose.model('AdminBalanceAdjustment', adminBalanceAdjustmentSchema);
-
-// Admin: Update user balance
-app.put('/api/admin/users/:id/balance', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { balance, operation = 'set', reason = 'Admin adjustment' } = req.body; // operation can be 'set' or 'add'
-
-    // Validate balance input - allow negative values for decreasing balance
-    if (typeof balance !== 'number') {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Balance must be a valid number' 
-      });
-    }
-
-    const user = await User.findById(id);
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
-
-    // Store old balance for logging
-    const oldBalance = user.balance || 0;
-    
-    // Update the balance based on operation
-    let newBalance;
-    if (operation === 'add') {
-      newBalance = oldBalance + balance;
-      console.log(`💰 Admin added $${balance} to user ${user.username} balance: $${oldBalance} → $${newBalance}`);
-    } else {
-      // Default operation is 'set' - set the balance to the specified value
-      newBalance = balance;
-      console.log(`💰 Admin set user ${user.username} balance: $${oldBalance} → $${newBalance}`);
-    }
-    
-    // Save the admin balance adjustment record
-    const adminAdjustment = new AdminBalanceAdjustment({
-      userId: user._id,
-      adminId: req.user?._id || user._id, // Use authenticated admin ID if available, fallback to user ID
-      operation: operation,
-      amount: balance,
-      reason: reason,
-      previousBalance: oldBalance,
-      newBalance: newBalance
-    });
-    await adminAdjustment.save();
-    
-    // Update user's balance and recalculate total balance
-    user.balance = newBalance;
-    user.totalBalance = newBalance + (user.additionalBalance || 0);
-    await user.save();
-
-    res.json({
-      success: true,
-      message: operation === 'add' ? 
-        `Successfully added $${balance} to user balance` : 
-        'User balance updated successfully',
-      user: {
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        balance: user.balance
-      },
-      operation: operation,
-      amountChanged: operation === 'add' ? balance : newBalance - oldBalance,
-      oldBalance: oldBalance,
-      newBalance: newBalance,
-      adjustmentId: adminAdjustment._id
-    });
-  } catch (err) {
-    console.error('Error updating user balance:', err);
-    res.status(500).json({ error: 'Failed to update user balance', details: err.message });
-  }
-});
-
-// Admin: Update user additional balance
-app.put('/api/admin/users/:id/additional-balance', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { additionalBalance, reason = 'Admin adjustment' } = req.body;
-
-    // Validate additionalBalance input
-    if (typeof additionalBalance !== 'number') {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Additional balance must be a valid number' 
-      });
-    }
-
-    // Additional balance should be non-negative
-    if (additionalBalance < 0) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Additional balance cannot be negative' 
-      });
-    }
-
-    const user = await User.findById(id);
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
-
-    // Store old additional balance for logging
-    const oldAdditionalBalance = user.additionalBalance || 0;
-    
-    // Update the additional balance and recalculate total balance
-    user.additionalBalance = additionalBalance;
-    user.totalBalance = (user.balance || 0) + additionalBalance;
-    await user.save();
-
-    // Total balance is now stored in the database
-    const totalBalance = user.totalBalance;
-
-    console.log(`💰 Admin updated additional balance for user ${user.username}: $${oldAdditionalBalance} → $${additionalBalance} (Total: $${totalBalance})`);
-
-    // Create admin adjustment record for additional balance
-    const adminAdjustment = new AdminBalanceAdjustment({
-      userId: user._id,
-      adminId: null, // We don't have admin authentication in this endpoint
-      operation: 'set',
-      amount: additionalBalance,
-      reason: `Additional balance: ${reason}`,
-      previousBalance: oldAdditionalBalance,
-      newBalance: additionalBalance
-    });
-    
-    await adminAdjustment.save();
-
-    res.json({
-      success: true,
-      message: 'Additional balance updated successfully',
-      user: {
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        balance: user.balance,
-        additionalBalance: user.additionalBalance,
-        totalBalance: totalBalance
-      },
-      oldAdditionalBalance: oldAdditionalBalance,
-      newAdditionalBalance: additionalBalance,
-      amountChanged: additionalBalance - oldAdditionalBalance,
-      adjustmentId: adminAdjustment._id
-    });
-  } catch (err) {
-    console.error('Error updating user additional balance:', err);
-    res.status(500).json({ error: 'Failed to update additional balance', details: err.message });
   }
 });
 
@@ -3620,33 +3157,16 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
     const userId = req.user._id;
     const now = new Date();
     
-    // Get user to calculate periods from creation date
-    const user = await User.findById(userId);
-    if (!user) {
-        return res.status(404).json({ success: false, error: 'User not found' });
-    }
-    
-    // Calculate 15-day periods starting from user creation date
-    const userCreatedAt = user.createdAt;
-    const daysSinceCreation = Math.floor((now - userCreatedAt) / (1000 * 60 * 60 * 24));
-    const periodNumber = Math.floor(daysSinceCreation / 15);
-    
-    const periodStart = new Date(userCreatedAt);
-    periodStart.setDate(periodStart.getDate() + (periodNumber * 15));
+    // Calculate current 15-day period
+    const periodStart = new Date(now);
+    periodStart.setDate(periodStart.getDate() - (periodStart.getDate() % 15));
     periodStart.setHours(0, 0, 0, 0);
     
     const periodEnd = new Date(periodStart);
     periodEnd.setDate(periodEnd.getDate() + 15);
     periodEnd.setHours(23, 59, 59, 999);
 
-    console.log('Period calculation:', { 
-        userCreatedAt: userCreatedAt.toDateString(),
-        daysSinceCreation,
-        periodNumber,
-        periodStart: periodStart.toDateString(), 
-        periodEnd: periodEnd.toDateString(), 
-        now: now.toDateString() 
-    });
+    console.log('Period calculation:', { periodStart, periodEnd, now });
 
     // Find or create requirement record
     let requirement = await WithdrawalRequirement.findOne({
@@ -3674,19 +3194,28 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
       console.log('New requirement saved');
     }
 
-    // Update requirements based on user activity (user already fetched above)
+    // Update requirements based on user activity
+    const user = await User.findById(userId);
     console.log('User found:', !!user);
     
-    // Check completed referrals where the referred user has deposited $10+ in this period
+    // Check confirmed referrals where the referred user has deposited in this period
     const referralsInPeriod = await Referral.aggregate([
       { $match: { 
         referrer: userId,
-        status: 'completed',
         createdAt: { $gte: periodStart, $lte: periodEnd }
+      }},
+      { $lookup: { 
+        from: 'users', 
+        localField: 'referred', 
+        foreignField: '_id', 
+        as: 'referredUser' 
+      }},
+      { $match: { 
+        'referredUser.hasDeposited': true 
       }},
       { $count: 'total' }
     ]).then(result => result[0]?.total || 0);
-    console.log('Completed referrals in period:', referralsInPeriod);
+    console.log('Referrals in period:', referralsInPeriod);
 
     // Check total deposit amount (not count)
     const totalDeposits = await Deposit.aggregate([
@@ -3695,29 +3224,6 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
     ]);
     const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
     console.log('Total deposit amount:', totalDepositAmount);
-
-    // Check total withdrawn amount (including pending/processing)
-    const totalWithdrawn = await WithdrawalRequest.aggregate([
-      { $match: { userId: userId, status: { $in: ['completed', 'pending', 'processing'] } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-    console.log('Total withdrawn amount:', totalWithdrawnAmount);
-
-    // Calculate actual available balance: (total deposits - 10) - total withdrawn
-    const calculatedBalance = Math.max(0, totalDepositAmount - 10 - totalWithdrawnAmount);
-    console.log('Calculated balance:', calculatedBalance, '(deposits:', totalDepositAmount, '- 10 - withdrawn:', totalWithdrawnAmount, ')');
-
-    // Calculate user balance using utility function
-    const balanceInfo = await calculateUserBalance(userId);
-    console.log('Balance calculation:', balanceInfo);
-
-    // Update user's balance if it's different from calculated balance
-    if (user.balance !== balanceInfo.calculatedBalance) {
-      console.log('Updating user balance from', user.balance, 'to', balanceInfo.calculatedBalance);
-      user.balance = balanceInfo.calculatedBalance;
-      await user.save();
-    }
 
     // Check lucky draw participations in current 15-day period (only approved ones)
     const luckyDrawInPeriod = await Participation.countDocuments({
@@ -3742,11 +3248,6 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
       requirement.requirements.deposit.met &&
       requirement.requirements.luckyDraw.met;
 
-    // Check if timer should be reset due to completing referral + lucky draw
-    if (requirement.requirements.referrals.met && requirement.requirements.luckyDraw.met) {
-      await resetWithdrawalTimer(userId);
-    }
-
     console.log('Requirements status:', {
       referrals: requirement.requirements.referrals,
       deposit: requirement.requirements.deposit,
@@ -3768,7 +3269,7 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
 
     const response = {
       success: true,
-      requirements: {
+      requirement: {
         periodStart: requirement.periodStart,
         periodEnd: requirement.periodEnd,
         requirements: requirement.requirements,
@@ -3798,72 +3299,20 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
     const userId = req.user._id;
 
     // Validate amount
-    if (!amount || amount < 1) {
-      return res.status(400).json({ success: false, error: 'Minimum withdrawal amount is $1' });
+    if (!amount || amount < 20) {
+      return res.status(400).json({ success: false, error: 'Minimum withdrawal amount is $20' });
     }
 
-    // Check user balance using calculated balance instead of stored balance
+    // Check user balance
     const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
+    if (!user || user.balance < amount) {
+      return res.status(400).json({ success: false, error: 'Insufficient balance' });
     }
 
-    // Calculate actual available balance: (total deposits - $10) + task rewards - total withdrawn
-    const withdrawalCheckDeposits = await Deposit.aggregate([
-      { $match: { userId: userId, status: 'confirmed' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    const withdrawalCheckDepositAmount = withdrawalCheckDeposits.length > 0 ? withdrawalCheckDeposits[0].total : 0;
-    
-    const withdrawalCheckTaskRewards = await TaskSubmission.aggregate([
-      { $match: { userId: userId, status: 'approved' } },
-      { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-      { $unwind: '$task' },
-      { $group: { _id: null, total: { $sum: '$task.reward' } } }
-    ]);
-    const withdrawalCheckTaskRewardAmount = withdrawalCheckTaskRewards.length > 0 ? withdrawalCheckTaskRewards[0].total : 0;
-    
-    const withdrawalCheckWithdrawn = await WithdrawalRequest.aggregate([
-      { $match: { userId: userId, status: { $in: ['completed', 'pending', 'processing'] } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    const withdrawalCheckWithdrawnAmount = withdrawalCheckWithdrawn.length > 0 ? withdrawalCheckWithdrawn[0].total : 0;
-    
-    // Calculate available balance: totalBalance - pending/processing withdrawals
-    const availableBalance = Math.max(0, (user.totalBalance || 0) - withdrawalCheckWithdrawnAmount);
-    
-    console.log('Balance check for withdrawal:', {
-      userId: userId,
-      storedTotalBalance: user.totalBalance || 0,
-      pendingWithdrawals: withdrawalCheckWithdrawnAmount,
-      availableBalance: availableBalance,
-      withdrawalAmount: amount,
-      calculation: `totalBalance(${user.totalBalance || 0}) - pendingWithdrawals(${withdrawalCheckWithdrawnAmount}) = $${availableBalance}`
-    });
-
-    if (availableBalance < amount) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Insufficient balance',
-        details: {
-          availableBalance: availableBalance,
-          requestedAmount: amount,
-          totalBalance: user.totalBalance || 0,
-          pendingWithdrawals: withdrawalCheckWithdrawnAmount
-        }
-      });
-    }
-
-    // Check withdrawal requirements - calculate period from user creation date
+    // Check withdrawal requirements
     const now = new Date();
-    const userCreatedAt = user.createdAt;
-    
-    // Calculate current period based on user creation date
-    const daysSinceCreation = Math.floor((now - userCreatedAt) / (1000 * 60 * 60 * 24));
-    const periodNumber = Math.floor(daysSinceCreation / 15);
-    
-    const periodStart = new Date(userCreatedAt);
-    periodStart.setDate(periodStart.getDate() + (periodNumber * 15));
+    const periodStart = new Date(now);
+    periodStart.setDate(periodStart.getDate() - (periodStart.getDate() % 15));
     periodStart.setHours(0, 0, 0, 0);
     
     const periodEnd = new Date(periodStart);
@@ -3890,19 +3339,9 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
 
     await withdrawalRequest.save();
 
-    // Update user balance to reflect the new withdrawal request
-    const newAvailableBalance = availableBalance - amount;
-    // Note: We don't update balance/totalBalance here since withdrawal is still pending
-    // Balance will be updated when withdrawal is confirmed/completed
+    // Deduct amount from user balance
+    user.balance -= amount;
     await user.save();
-    
-    console.log('Balance updated after withdrawal request:', {
-      userId: userId,
-      previousAvailableBalance: availableBalance,
-      withdrawalAmount: amount,
-      newAvailableBalance: newAvailableBalance,
-      note: 'Balance updated to reflect new withdrawal request'
-    });
 
     res.json({
       success: true,
@@ -4073,14 +3512,7 @@ app.post('/api/tasks/:taskId/submit', ensureAuthenticated, async (req, res) => {
 // Get all tasks (for admin)
 app.get('/api/admin/tasks', async (req, res) => {
   try {
-    // Only show tasks that are not hidden from admin panel
-    const tasks = await Task.find({ 
-      $or: [
-        { hiddenFromAdmin: { $exists: false } }, // Backward compatibility for existing tasks
-        { hiddenFromAdmin: false }
-      ]
-    }).sort({ createdAt: -1 });
-    
+    const tasks = await Task.find({}).sort({ createdAt: -1 });
     res.json({
       success: true,
       tasks: tasks.map(task => ({
@@ -4194,7 +3626,7 @@ app.put('/api/admin/tasks/:taskId', async (req, res) => {
   }
 });
 
-// Delete task (for admin) - Hide from admin panel instead of deleting from database
+// Delete task (for admin)
 app.delete('/api/admin/tasks/:taskId', async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -4204,38 +3636,27 @@ app.delete('/api/admin/tasks/:taskId', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Task not found' });
     }
 
-    // Hide task from admin panel instead of deleting it
-    // This preserves the task in database for existing submissions and historical data
-    task.hiddenFromAdmin = true;
-    await task.save();
+    // Delete task and all related submissions
+    await Task.findByIdAndDelete(taskId);
+    await TaskSubmission.deleteMany({ taskId });
 
     res.json({
       success: true,
-      message: 'Task hidden from admin panel successfully'
+      message: 'Task deleted successfully'
     });
   } catch (error) {
-    console.error('Error hiding task:', error);
-    res.status(500).json({ success: false, error: 'Failed to hide task' });
+    console.error('Error deleting task:', error);
+    res.status(500).json({ success: false, error: 'Failed to delete task' });
   }
 });
 
 // Get task submissions (for admin)
 app.get('/api/admin/task-submissions', async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const skip = (page - 1) * limit;
-
-    // Get total count for pagination
-    const total = await TaskSubmission.countDocuments({});
-    const totalPages = Math.ceil(total / limit);
-
     const submissions = await TaskSubmission.find({})
       .populate('taskId')
       .populate('userId', 'username email')
-      .sort({ submittedAt: -1 })
-      .skip(skip)
-      .limit(limit);
+      .sort({ submittedAt: -1 });
 
     res.json({
       success: true,
@@ -4253,23 +3674,11 @@ app.get('/api/admin/task-submissions', async (req, res) => {
         } : null,
         status: submission.status,
         screenshotUrl: submission.screenshotUrl,
-        url: submission.url,
         notes: submission.notes,
         submittedAt: submission.submittedAt,
         reviewedAt: submission.reviewedAt,
         reviewNotes: submission.reviewNotes
-      })),
-      pagination: {
-        currentPage: page,
-        totalPages: totalPages,
-        total: total,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
-      },
-      // Legacy fields for compatibility
-      currentPage: page,
-      totalPages: totalPages,
-      total: total
+      }))
     });
   } catch (error) {
     console.error('Error fetching task submissions:', error);
@@ -4300,27 +3709,12 @@ app.put('/api/admin/task-submissions/:submissionId/review', async (req, res) => 
     submission.reviewedAt = new Date();
     submission.reviewNotes = reviewNotes;
 
-    // If approved, add reward to user's balance and update totalBalance properly
+    // If approved, add reward to user's balance
     if (status === 'approved' && submission.userId && submission.taskId) {
       const user = await User.findById(submission.userId._id);
       if (user) {
-        console.log(`✅ TASK APPROVED: Adding $${submission.taskId.reward} to user ${user.username} balance`);
-        console.log(`   Previous balance: $${user.balance}`);
-        console.log(`   Previous total balance: $${user.totalBalance}`);
-        
-        // Use the enhanced calculateUserBalance function that integrates admin adjustments
-        const balanceInfo = await calculateUserBalance(user._id);
-        user.balance = balanceInfo.calculatedBalance;
-        
-        // Recalculate total balance (current balance + additional balance)
-        const additionalBalance = user.additionalBalance || 0;
-        user.totalBalance = user.balance + additionalBalance;
-        
+        user.balance += submission.taskId.reward;
         await user.save();
-        
-        console.log(`   Enhanced balance calculation:`, balanceInfo);
-        console.log(`   New balance: $${user.balance}`);
-        console.log(`   New total balance: $${user.totalBalance} (balance: $${user.balance} + additional: $${additionalBalance})`);
       }
     }
 
@@ -4344,51 +3738,22 @@ app.put('/api/admin/task-submissions/:submissionId/review', async (req, res) => 
 
 // ==================== ADMIN WITHDRAWAL REQUEST ENDPOINTS ====================
 
-// Handle preflight requests for withdrawal requests
-app.options('/api/admin/withdrawal-requests', (req, res) => {
-  const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
-    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
-  }
-  res.status(200).end();
-});
-
 // Get all withdrawal requests (for admin)
 app.get('/api/admin/withdrawal-requests', async (req, res) => {
   try {
-    console.log('💰 Admin withdrawal requests request received');
-    console.log('Origin:', req.headers.origin);
-    
-    // Explicitly set CORS headers for admin endpoints
-    const origin = req.headers.origin;
-    if (origin && ALLOWED_ORIGINS.includes(origin)) {
-      console.log(`✅ Setting CORS headers for admin withdrawal requests: ${origin}`);
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
-      res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
-    }
-    
     const withdrawalRequests = await WithdrawalRequest.find({})
       .populate('userId', 'username email balance')
       .sort({ createdAt: -1 });
-
-    console.log(`✅ Found ${withdrawalRequests.length} withdrawal requests`);
 
     res.json({
       success: true,
       withdrawalRequests: withdrawalRequests.map(request => ({
         id: request._id,
         user: {
-          id: request.userId?._id || 'N/A',
-          username: request.userId?.username || 'Unknown User',
-          email: request.userId?.email || 'No Email',
-          balance: request.userId?.balance || 0
+          id: request.userId._id,
+          username: request.userId.username,
+          email: request.userId.email,
+          balance: request.userId.balance
         },
         amount: request.amount,
         walletAddress: request.walletAddress,
@@ -4404,40 +3769,11 @@ app.get('/api/admin/withdrawal-requests', async (req, res) => {
   }
 });
 
-// Handle preflight requests for withdrawal request processing
-app.options('/api/admin/withdrawal-requests/:requestId/process', (req, res) => {
-  const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
-    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
-  }
-  res.status(200).end();
-});
-
 // Process withdrawal request (approve/reject) - for admin
 app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) => {
   try {
     const { requestId } = req.params;
     const { status, notes } = req.body;
-    
-    console.log('🔧 Admin withdrawal request processing received');
-    console.log('Request ID:', requestId);
-    console.log('Status:', status);
-    console.log('Notes:', notes);
-    
-    // Explicitly set CORS headers for admin endpoints
-    const origin = req.headers.origin;
-    if (origin && ALLOWED_ORIGINS.includes(origin)) {
-      console.log(`✅ Setting CORS headers for admin withdrawal processing: ${origin}`);
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
-      res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
-    }
 
     if (!['completed', 'rejected'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Invalid status' });
@@ -4455,28 +3791,13 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
     withdrawalRequest.processedAt = new Date();
     withdrawalRequest.notes = notes;
 
-    // Recalculate user balance properly after status change
-    const user = await User.findById(withdrawalRequest.userId._id);
-    if (user) {
-      // Use the enhanced calculateUserBalance function that integrates admin adjustments
-      const balanceInfo = await calculateUserBalance(user._id);
-      user.balance = balanceInfo.calculatedBalance;
-      
-      // Recalculate total balance (current balance + additional balance)
-      const additionalBalance = user.additionalBalance || 0;
-      user.totalBalance = user.balance + additionalBalance;
-      
-      await user.save();
-      
-      console.log('Balance recalculated after admin processing:', {
-        userId: user._id,
-        withdrawalId: requestId,
-        status: status,
-        balanceInfo: balanceInfo,
-        newBalance: user.balance,
-        newTotalBalance: user.totalBalance,
-        additionalBalance: additionalBalance
-      });
+    // If rejected, refund the amount to user's balance
+    if (status === 'rejected') {
+      const user = await User.findById(withdrawalRequest.userId._id);
+      if (user) {
+        user.balance += withdrawalRequest.amount;
+        await user.save();
+      }
     }
 
     await withdrawalRequest.save();
@@ -4499,17 +3820,10 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
 
 // ==================== ADMIN LUCKY DRAW ENDPOINTS ====================
 
-// Get all lucky draws (for admin) - Exclude hidden lucky draws
+// Get all lucky draws (for admin)
 app.get('/api/admin/lucky-draws', async (req, res) => {
   try {
-    // Only show lucky draws that are not hidden from admin panel
-    const luckyDraws = await LuckyDraw.find({ 
-      $or: [
-        { hiddenFromAdmin: { $exists: false } }, // Backward compatibility for existing lucky draws
-        { hiddenFromAdmin: false }
-      ]
-    }).sort({ createdAt: -1 });
-    
+    const luckyDraws = await LuckyDraw.find({}).sort({ createdAt: -1 });
     res.json({
       success: true,
       luckyDraws: luckyDraws
@@ -4554,28 +3868,23 @@ app.post('/api/admin/lucky-draws', async (req, res) => {
   }
 });
 
-// Delete lucky draw (for admin) - Hide from admin panel instead of deleting from database
+// Delete lucky draw (for admin)
 app.delete('/api/admin/lucky-draws/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const luckyDraw = await LuckyDraw.findById(id);
+    const luckyDraw = await LuckyDraw.findByIdAndDelete(id);
     
     if (!luckyDraw) {
       return res.status(404).json({ success: false, error: 'Lucky draw not found' });
     }
     
-    // Hide lucky draw from admin panel instead of deleting it
-    // This preserves the lucky draw in database for existing participations and historical data
-    luckyDraw.hiddenFromAdmin = true;
-    await luckyDraw.save();
-    
     res.json({
       success: true,
-      message: 'Lucky draw hidden from admin panel successfully'
+      message: 'Lucky draw deleted successfully'
     });
   } catch (error) {
-    console.error('Error hiding lucky draw:', error);
-    res.status(500).json({ error: 'Failed to hide lucky draw' });
+    console.error('Error deleting lucky draw:', error);
+    res.status(500).json({ error: 'Failed to delete lucky draw' });
   }
 });
 
@@ -4746,94 +4055,6 @@ app.post('/api/lucky-draws/:id/participate', ensureAuthenticated, async (req, re
   }
 });
 
-// ==================== WITHDRAWAL TIMER RESET FUNCTIONS ====================
-
-// Function to reset 15-day withdrawal timer when user completes referral + lucky draw
-async function resetWithdrawalTimer(userId) {
-  try {
-    console.log(`🔄 Checking timer reset for user: ${userId}`);
-    
-    const now = new Date();
-    const user = await User.findById(userId);
-    if (!user) {
-      console.log(`❌ User not found for timer reset: ${userId}`);
-      return false;
-    }
-
-    // Get current withdrawal requirement period
-    const currentRequirement = await WithdrawalRequirement.findOne({
-      userId,
-      periodStart: { $lte: now },
-      periodEnd: { $gte: now }
-    });
-
-    if (!currentRequirement) {
-      console.log(`❌ No current withdrawal requirement found for user: ${userId}`);
-      return false;
-    }
-
-    // Check if user has completed both referral and lucky draw in current period
-    const hasCompletedReferral = currentRequirement.requirements.referrals.met;
-    const hasCompletedLuckyDraw = currentRequirement.requirements.luckyDraw.met;
-
-    console.log(`📊 Timer reset check for ${user.username}:`, {
-      hasCompletedReferral,
-      hasCompletedLuckyDraw,
-      periodStart: currentRequirement.periodStart,
-      periodEnd: currentRequirement.periodEnd
-    });
-
-    // If user has completed both referral and lucky draw, reset timer
-    if (hasCompletedReferral && hasCompletedLuckyDraw) {
-      console.log(`✅ User ${user.username} has completed both requirements - resetting 15-day timer`);
-
-      // Create new 15-day period starting from now
-      const newPeriodStart = new Date(now);
-      newPeriodStart.setHours(0, 0, 0, 0);
-      
-      const newPeriodEnd = new Date(newPeriodStart);
-      newPeriodEnd.setDate(newPeriodEnd.getDate() + 15);
-      newPeriodEnd.setHours(23, 59, 59, 999);
-
-      // End current period early
-      currentRequirement.periodEnd = new Date(now);
-      currentRequirement.timerReset = true;
-      currentRequirement.resetAt = now;
-      await currentRequirement.save();
-
-      // Create new withdrawal requirement period
-      const newRequirement = new WithdrawalRequirement({
-        userId,
-        periodStart: newPeriodStart,
-        periodEnd: newPeriodEnd,
-        requirements: {
-          referrals: { required: 1, completed: 0, met: false },
-          deposit: { required: 10, completed: 0, met: false },
-          luckyDraw: { required: 1, completed: 0, met: false }
-        },
-        previousPeriodId: currentRequirement._id // Link to previous period
-      });
-
-      await newRequirement.save();
-
-      console.log(`🎉 Timer reset successful for ${user.username}:`, {
-        oldPeriodEnd: currentRequirement.periodEnd,
-        newPeriodStart: newPeriodStart,
-        newPeriodEnd: newPeriodEnd
-      });
-
-      return true;
-    } else {
-      console.log(`⏳ User ${user.username} has not completed both requirements yet`);
-      return false;
-    }
-
-  } catch (error) {
-    console.error('Error resetting withdrawal timer:', error);
-    return false;
-  }
-}
-
 // ==================== AUTOMATIC CLEANUP ====================
 
 // Function to cleanup expired lucky draws and activate scheduled ones
@@ -4872,273 +4093,3 @@ const cleanupExpiredLuckyDraws = async () => {
 setInterval(cleanupExpiredLuckyDraws, 60 * 60 * 1000);
 
 // Server startup is handled by the MongoDB connection promise above
-
-// ==================== USER BALANCE RESTORATION ====================
-
-// Admin endpoint to fix all user balances based on confirmed deposits
-app.post('/api/admin/fix-user-balances', async (req, res) => {
-  try {
-    console.log('🔧 ADMIN: Starting user balance fix...');
-    
-    const users = await User.find({});
-    console.log(`📊 Found ${users.length} users to process`);
-    
-    let fixedCount = 0;
-    let totalDepositsProcessed = 0;
-    const results = [];
-    
-    for (const user of users) {
-      console.log(`👤 Processing user: ${user.username} (${user._id})`);
-      console.log(`   Current balance: $${user.balance}`);
-      console.log(`   Current hasDeposited: ${user.hasDeposited}`);
-      
-      const confirmedDeposits = await Deposit.find({
-        userId: user._id,
-        status: 'confirmed'
-      }).sort({ createdAt: 1 });
-      
-      console.log(`   Found ${confirmedDeposits.length} confirmed deposits`);
-      
-      const previousBalance = user.balance;
-      const previousHasDeposited = user.hasDeposited;
-      
-      if (confirmedDeposits.length === 0) {
-        console.log(`   ⚠️ No confirmed deposits - setting balance to $0 and hasDeposited to false`);
-        user.balance = 0;
-        user.hasDeposited = false;
-      } else {
-        const totalDeposits = confirmedDeposits.reduce((sum, deposit) => sum + deposit.amount, 0);
-        console.log(`   Total confirmed deposits: $${totalDeposits}`);
-        
-        if (totalDeposits <= 10) {
-          // First deposit(s) totaling $10 or less - unlocks tasks, balance = task rewards only
-          const totalTaskRewards = await TaskSubmission.aggregate([
-            { $match: { userId: user._id, status: 'approved' } },
-            { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-            { $unwind: '$task' },
-            { $group: { _id: null, total: { $sum: '$task.reward' } } }
-          ]);
-          const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-          
-          const totalWithdrawn = await WithdrawalRequest.aggregate([
-            { $match: { userId: user._id, status: { $in: ['completed', 'pending', 'processing'] } } },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-          ]);
-          const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-          
-          // For $10 or less deposits: balance = task rewards - withdrawals (no deposit contribution)
-          user.balance = Math.max(0, totalTaskRewardAmount - totalWithdrawnAmount);
-          user.hasDeposited = true;
-          console.log(`   ✅ First deposit(s) totaling $${totalDeposits} - tasks unlocked, balance = task rewards (${totalTaskRewardAmount}) - withdrawals (${totalWithdrawnAmount}) = $${user.balance}`);
-        } else {
-          // Total deposits more than $10 - first $10 unlocks tasks, rest goes to balance
-          // BUT we need to add task rewards and subtract withdrawals too!
-          const totalTaskRewards = await TaskSubmission.aggregate([
-            { $match: { userId: user._id, status: 'approved' } },
-            { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-            { $unwind: '$task' },
-            { $group: { _id: null, total: { $sum: '$task.reward' } } }
-          ]);
-          const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-          
-          const totalWithdrawn = await WithdrawalRequest.aggregate([
-            { $match: { userId: user._id, status: { $in: ['completed', 'pending', 'processing'] } } },
-            { $group: { _id: null, total: { $sum: '$amount' } } }
-          ]);
-          const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-          
-          // Calculate balance: (deposits - $10) + task rewards - withdrawals
-          const depositContribution = Math.max(0, totalDeposits - 10); // Only deposits beyond $10 count
-          user.balance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
-          user.hasDeposited = true;
-          console.log(`   ✅ Total deposits $${totalDeposits} - tasks unlocked, balance = (${totalDeposits} - 10) + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = ${depositContribution} + ${totalTaskRewardAmount} - ${totalWithdrawnAmount} = $${user.balance}`);
-        }
-        
-        totalDepositsProcessed += totalDeposits;
-      }
-      
-      await user.save();
-      console.log(`   💾 User updated - New balance: $${user.balance}, hasDeposited: ${user.hasDeposited}`);
-      
-      results.push({
-        username: user.username,
-        userId: user._id,
-        previousBalance,
-        newBalance: user.balance,
-        previousHasDeposited,
-        newHasDeposited: user.hasDeposited,
-        confirmedDeposits: confirmedDeposits.length,
-        totalDepositAmount: confirmedDeposits.reduce((sum, deposit) => sum + deposit.amount, 0)
-      });
-      
-      fixedCount++;
-    }
-    
-    console.log(`🎉 Balance fix completed successfully!`);
-    console.log(`📊 Summary:`);
-    console.log(`   Users processed: ${fixedCount}`);
-    console.log(`   Total deposits processed: $${totalDepositsProcessed}`);
-    
-    res.json({
-      success: true,
-      message: 'All user balances have been restored to their correct values',
-      summary: {
-        usersProcessed: fixedCount,
-        totalDepositsProcessed,
-        timestamp: new Date()
-      },
-      results
-    });
-    
-  } catch (error) {
-    console.error('❌ Error fixing user balances:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fix user balances',
-      details: error.message
-    });
-  }
-});
-
-// Utility function to calculate user balance consistently
-async function calculateUserBalance(userId) {
-  try {
-    // Convert userId to ObjectId for aggregation queries
-    const userIdObj = new mongoose.Types.ObjectId(userId.toString());
-    
-    // Get all confirmed deposits sorted by creation date
-    const deposits = await Deposit.find({ 
-      userId: userId, 
-      status: 'confirmed' 
-    }).sort({ createdAt: 1 });
-    
-    // Calculate deposit contribution with $10 unlock fee logic
-    let depositContribution = 0;
-    let remainingUnlockFee = 10; // $10 unlock fee
-    
-    for (const deposit of deposits) {
-      if (remainingUnlockFee > 0) {
-        // Apply deposit to unlock fee first
-        if (deposit.amount <= remainingUnlockFee) {
-          remainingUnlockFee -= deposit.amount;
-          // This deposit goes entirely to unlock fee, no contribution to balance
-        } else {
-          // Deposit exceeds remaining unlock fee
-          depositContribution += deposit.amount - remainingUnlockFee;
-          remainingUnlockFee = 0;
-        }
-      } else {
-        // Unlock fee already paid, all deposits contribute to balance
-        depositContribution += deposit.amount;
-      }
-    }
-    
-    // Get total task rewards with proper ObjectId conversion
-    const totalTaskRewards = await TaskSubmission.aggregate([
-      { $match: { userId: userIdObj, status: 'approved' } },
-      { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
-      { $unwind: '$task' },
-      { $group: { _id: null, total: { $sum: '$task.reward' } } }
-    ]);
-    const totalTaskRewardAmount = totalTaskRewards.length > 0 ? totalTaskRewards[0].total : 0;
-    
-    // Get total withdrawals (including pending/processing)
-    const totalWithdrawn = await WithdrawalRequest.aggregate([
-      { $match: { userId: userIdObj, status: { $in: ['completed', 'pending', 'processing'] } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    const totalWithdrawnAmount = totalWithdrawn.length > 0 ? totalWithdrawn[0].total : 0;
-    
-    // Calculate final balance: deposits (after $10 unlock) + task rewards - withdrawals
-    const finalBalance = Math.max(0, depositContribution + totalTaskRewardAmount - totalWithdrawnAmount);
-    
-    return {
-      totalDeposits: deposits.reduce((sum, d) => sum + d.amount, 0),
-      depositContribution: depositContribution,
-      totalTaskRewards: totalTaskRewardAmount,
-      totalWithdrawn: totalWithdrawnAmount,
-      calculatedBalance: finalBalance,
-      unlockFeePaid: Math.min(10, deposits.reduce((sum, d) => sum + d.amount, 0))
-    };
-  } catch (error) {
-    console.error('Error calculating user balance:', error);
-    return { 
-      totalDeposits: 0, 
-      depositContribution: 0, 
-      totalTaskRewards: 0, 
-      totalWithdrawn: 0, 
-      calculatedBalance: 0,
-      unlockFeePaid: 0
-    };
-  }
-}
-
-// Admin endpoint to recalculate all user balances
-app.post('/api/admin/recalculate-balances', async (req, res) => {
-  try {
-    console.log('🔄 Admin requested balance recalculation for all users');
-    
-    const users = await User.find({});
-    let updatedCount = 0;
-    let totalUsers = users.length;
-    
-    for (const user of users) {
-      try {
-        const balanceInfo = await calculateUserBalance(user._id);
-        
-        if (user.balance !== balanceInfo.calculatedBalance) {
-          console.log(`Updating user ${user.username} balance from $${user.balance} to $${balanceInfo.calculatedBalance}`);
-          user.balance = balanceInfo.calculatedBalance;
-          await user.save();
-          updatedCount++;
-        }
-      } catch (error) {
-        console.error(`Error updating balance for user ${user._id}:`, error);
-      }
-    }
-    
-    console.log(`✅ Balance recalculation completed. Updated ${updatedCount}/${totalUsers} users.`);
-    
-    res.json({
-      success: true,
-      message: `Balance recalculation completed. Updated ${updatedCount}/${totalUsers} users.`,
-      updatedCount,
-      totalUsers
-    });
-    
-  } catch (error) {
-    console.error('Error recalculating balances:', error);
-    res.status(500).json({ success: false, error: 'Failed to recalculate balances' });
-  }
-});
-
-// Debug endpoint for session troubleshooting in Railway
-app.get('/debug-config', (req, res) => {
-  try {
-    const config = {
-      NODE_ENV: process.env.NODE_ENV || 'not set',
-      SESSION_NAME: process.env.SESSION_NAME || 'easyearn.sid',
-      SESSION_SECRET: process.env.SESSION_SECRET ? 'set' : 'not set',
-      SESSION_MAX_AGE: process.env.SESSION_MAX_AGE || '7 days default',
-      MONGODB_URI: process.env.MONGODB_URI ? 'set' : 'not set',
-      sessionStore: 'MongoStore',
-      cookieSettings: {
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-        httpOnly: true,
-        maxAge: Number(process.env.SESSION_MAX_AGE || 7 * 24 * 60 * 60 * 1000)
-      },
-      trustProxy: app.get('trust proxy'),
-      currentSession: {
-        id: req.sessionID,
-        hasSession: !!req.session,
-        sessionKeys: req.session ? Object.keys(req.session) : [],
-        user: req.user ? req.user.username : null
-      }
-    };
-    
-    res.json(config);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get config', details: error.message });
-  }
-});

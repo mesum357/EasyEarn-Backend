@@ -23,7 +23,7 @@ async function fixUserPassword() {
         
         // Import User model
         console.log('\n2. Importing User model...');
-        const User = require('./models/User');
+        const User = require('./React Websitee/pak-nexus/backend/models/User');
         console.log('✅ User model imported successfully');
         
         // Find the test user
