@@ -462,12 +462,12 @@ const mongooseOptions = {
     maxPoolSize: 10,
     minPoolSize: 5,
     maxIdleTimeMS: 30000,
-    bufferCommands: false,
-    bufferMaxEntries: 0
+    bufferCommands: false
+    // bufferMaxEntries removed - deprecated in newer MongoDB driver versions
 };
 
 if (process.env.NODE_ENV === 'production') {
-    mongooseOptions.ssl = true;
+    // SSL/TLS configuration for production
     mongooseOptions.tls = true;
     mongooseOptions.tlsAllowInvalidCertificates = true;
     mongooseOptions.tlsAllowInvalidHostnames = true;

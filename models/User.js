@@ -18,7 +18,9 @@ const userSchema = new mongoose.Schema({
   resetPasswordExpires: { type: Date },
   followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   following: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  isAdmin: { type: Boolean, default: false } // Admin role for entity approval
+  isAdmin: { type: Boolean, default: false }, // Admin role for entity approval
+  balance: { type: Number, default: 0 }, // User's current balance
+  additionalBalance: { type: Number, default: 0 } // Admin-added additional balance
 }, { timestamps: true });
 
 // Add plugins
