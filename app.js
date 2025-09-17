@@ -454,8 +454,17 @@ app.post('/api/login-jwt', function(req, res, next) {
 
 // Test login endpoint removed - use standard /login endpoint
 
-// MONGOOSE - simplified configuration for stability
-const mongooseOptions = {};
+// MONGOOSE - configuration for stability
+const mongooseOptions = {
+    serverSelectionTimeoutMS: 30000, // 30 seconds
+    connectTimeoutMS: 30000, // 30 seconds
+    socketTimeoutMS: 30000, // 30 seconds
+    maxPoolSize: 10,
+    minPoolSize: 5,
+    maxIdleTimeMS: 30000,
+    bufferCommands: false,
+    bufferMaxEntries: 0
+};
 
 if (process.env.NODE_ENV === 'production') {
     mongooseOptions.ssl = true;
@@ -465,7 +474,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Get MongoDB URI from environment or use default
-const mongoURI = process.env.MONGODB_URI;
+const mongoURI = process.env.MONGODB_URI || "mongodb+srv://mesum357:pDliM118811@cluster0.h3knh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 if (!mongoURI) {
     console.error("MONGODB_URI is not defined in environment variables");
     process.exit(1);
@@ -1522,30 +1531,24 @@ app.put('/api/deposits/:id/confirm', ensureAuthenticated, async (req, res) => {
       const previousBalance = user.balance;
       
       if (isFirstDeposit && isMinimumAmount) {
-        // First deposit of $10+ unlocks tasks but doesn't add to balance
+        // First deposit of $10+ unlocks tasks
         user.hasDeposited = true;
-        // Balance calculation: total deposits - 10
-        const totalConfirmedDeposits = await Deposit.aggregate([
-          { $match: { userId: deposit.userId, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
-        console.log(`✅ FIRST DEPOSIT: Tasks unlocked! Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        // Use comprehensive balance calculation
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
+        console.log(`✅ FIRST DEPOSIT: Tasks unlocked! Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       } else if (!isFirstDeposit) {
         // Subsequent deposits add to balance normally
-        const totalConfirmedDeposits = await Deposit.aggregate([
-          { $match: { userId: deposit.userId, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
         user.hasDeposited = true; // Ensure tasks remain unlocked
-        console.log(`✅ SUBSEQUENT DEPOSIT: Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        console.log(`✅ SUBSEQUENT DEPOSIT: Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       } else {
         // First deposit but less than $10 - doesn't unlock tasks
         console.log(`⚠️ FIRST DEPOSIT TOO SMALL: $${deposit.amount} < $10, tasks remain locked`);
-        user.balance += deposit.amount; // Add to balance normally
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
+        console.log(`✅ SMALL FIRST DEPOSIT: Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       }
       
       await user.save();
@@ -1832,30 +1835,24 @@ app.put('/api/admin/deposits/:id/confirm', async (req, res) => {
       const previousBalance = user.balance;
       
       if (isFirstDeposit && isMinimumAmount) {
-        // First deposit of $10+ unlocks tasks but doesn't add to balance
+        // First deposit of $10+ unlocks tasks
         user.hasDeposited = true;
-        // Balance calculation: total deposits - 10
-        const totalConfirmedDeposits = await Deposit.aggregate([
-          { $match: { userId: deposit.userId, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
-        console.log(`✅ ADMIN FIRST DEPOSIT: Tasks unlocked! Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        // Use comprehensive balance calculation
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
+        console.log(`✅ ADMIN FIRST DEPOSIT: Tasks unlocked! Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       } else if (!isFirstDeposit) {
         // Subsequent deposits add to balance normally
-        const totalConfirmedDeposits = await Deposit.aggregate([
-          { $match: { userId: deposit.userId, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
         user.hasDeposited = true; // Ensure tasks remain unlocked
-        console.log(`✅ ADMIN SUBSEQUENT DEPOSIT: Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        console.log(`✅ ADMIN SUBSEQUENT DEPOSIT: Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       } else {
         // First deposit but less than $10 - doesn't unlock tasks
         console.log(`⚠️ ADMIN FIRST DEPOSIT TOO SMALL: $${deposit.amount} < $10, tasks remain locked`);
-        user.balance += deposit.amount; // Add to balance normally
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
+        console.log(`✅ ADMIN SMALL FIRST DEPOSIT: Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       }
       
       await user.save();
@@ -2057,6 +2054,70 @@ app.put('/api/admin/users/:id/deactivate', async (req, res) => {
   }
 });
 
+// Admin: Modify user balance (add/subtract amount)
+app.put('/api/admin/users/:id/balance', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, operation = 'add' } = req.body;
+
+    // Validate input
+    if (typeof amount !== 'number' || isNaN(amount)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Amount must be a valid number' 
+      });
+    }
+
+    if (!['add', 'subtract'].includes(operation)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Operation must be either "add" or "subtract"' 
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const oldBalance = user.balance || 0;
+    let newBalance;
+
+    if (operation === 'add') {
+      newBalance = oldBalance + amount;
+    } else {
+      newBalance = oldBalance - amount;
+    }
+
+    // Ensure balance doesn't go below 0 (optional business rule)
+    newBalance = Math.max(0, newBalance);
+
+    // Update user balance
+    user.balance = newBalance;
+    await user.save();
+
+    console.log(`✅ ADMIN BALANCE ${operation.toUpperCase()}: ${user.username} - $${oldBalance} ${operation === 'add' ? '+' : '-'} $${Math.abs(amount)} = $${newBalance}`);
+
+    res.json({
+      success: true,
+      message: `Successfully ${operation === 'add' ? 'added' : 'subtracted'} $${Math.abs(amount)} ${operation === 'add' ? 'to' : 'from'} user balance`,
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        balance: newBalance
+      },
+      operation,
+      amountChanged: amount,
+      oldBalance,
+      newBalance
+    });
+  } catch (err) {
+    console.error('Error modifying user balance:', err);
+    res.status(500).json({ error: 'Failed to modify user balance', details: err.message });
+  }
+});
+
 // Notification Schema
 const notificationSchema = new mongoose.Schema({
   title: String,
@@ -2099,6 +2160,235 @@ const taskSubmissionSchema = new mongoose.Schema({
 });
 
 const TaskSubmission = mongoose.model('TaskSubmission', taskSubmissionSchema);
+
+// Utility function for calculating user balance
+async function calculateUserBalance(userId) {
+  try {
+    // Get total confirmed deposits
+    const totalConfirmedDeposits = await Deposit.aggregate([
+      { $match: { userId: userId, status: 'confirmed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
+
+    // Get total approved task rewards
+    const approvedTaskRewards = await TaskSubmission.aggregate([
+      { $match: { userId: userId, status: 'approved' } },
+      { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
+      { $unwind: '$task' },
+      { $group: { _id: null, total: { $sum: '$task.reward' } } }
+    ]);
+    const totalTaskRewards = approvedTaskRewards.length > 0 ? approvedTaskRewards[0].total : 0;
+
+    // Get total withdrawals (pending, processing, and completed)
+    const totalWithdrawals = await WithdrawalRequest.aggregate([
+      { $match: { userId: userId, status: { $in: ['pending', 'processing', 'completed'] } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalWithdrawn = totalWithdrawals.length > 0 ? totalWithdrawals[0].total : 0;
+
+    // Calculate balance: (deposits - $10) + task rewards - withdrawals
+    const depositContribution = Math.max(0, totalDeposits - 10);
+    const balance = Math.max(0, depositContribution + totalTaskRewards - totalWithdrawn);
+
+    return {
+      balance,
+      totalDeposits,
+      totalTaskRewards,
+      totalWithdrawn,
+      depositContribution
+    };
+  } catch (error) {
+    console.error('Error calculating user balance:', error);
+    return {
+      balance: 0,
+      totalDeposits: 0,
+      totalTaskRewards: 0,
+      totalWithdrawn: 0,
+      depositContribution: 0
+    };
+  }
+}
+
+// Admin: Verify all user balances
+app.get('/api/admin/verify-balances', async (req, res) => {
+  try {
+    console.log('🔍 Starting comprehensive balance verification...');
+    
+    // Get all users
+    const users = await User.find({}).sort({ createdAt: -1 });
+    console.log(`👥 Found ${users.length} users to verify`);
+
+    let correctBalances = 0;
+    let incorrectBalances = 0;
+    let totalSystemBalance = 0;
+    let totalDeposits = 0;
+    let totalTaskRewards = 0;
+    let totalWithdrawals = 0;
+    const issues = [];
+    const userDetails = [];
+
+    for (const user of users) {
+      // Calculate expected balance
+      const balanceData = await calculateUserBalance(user._id);
+      const expectedBalance = balanceData.balance;
+      const actualBalance = user.balance || 0;
+
+      // Check if balance is correct
+      const isCorrect = Math.abs(actualBalance - expectedBalance) < 0.01;
+
+      if (isCorrect) {
+        correctBalances++;
+      } else {
+        incorrectBalances++;
+        issues.push({
+          username: user.username,
+          email: user.email,
+          actualBalance: actualBalance,
+          expectedBalance: expectedBalance,
+          difference: Math.abs(actualBalance - expectedBalance),
+          totalDeposits: balanceData.totalDeposits,
+          totalTaskRewards: balanceData.totalTaskRewards,
+          totalWithdrawn: balanceData.totalWithdrawn
+        });
+      }
+
+      totalSystemBalance += expectedBalance;
+      totalDeposits += balanceData.totalDeposits;
+      totalTaskRewards += balanceData.totalTaskRewards;
+      totalWithdrawals += balanceData.totalWithdrawn;
+
+      // Add user details for analysis
+      userDetails.push({
+        username: user.username,
+        email: user.email,
+        actualBalance: actualBalance,
+        expectedBalance: expectedBalance,
+        isCorrect: isCorrect,
+        totalDeposits: balanceData.totalDeposits,
+        totalTaskRewards: balanceData.totalTaskRewards,
+        totalWithdrawn: balanceData.totalWithdrawn,
+        depositContribution: balanceData.depositContribution
+      });
+    }
+
+    console.log('\n🎯 VERIFICATION COMPLETE!');
+    console.log(`📊 Summary: ${users.length} users, ${correctBalances} correct, ${incorrectBalances} incorrect`);
+
+    res.json({
+      success: true,
+      message: 'Balance verification completed',
+      summary: {
+        totalUsers: users.length,
+        correctBalances: correctBalances,
+        incorrectBalances: incorrectBalances,
+        accuracy: ((correctBalances / users.length) * 100).toFixed(2) + '%',
+        totalSystemBalance: totalSystemBalance.toFixed(2),
+        totalDeposits: totalDeposits.toFixed(2),
+        totalTaskRewards: totalTaskRewards.toFixed(2),
+        totalWithdrawals: totalWithdrawals.toFixed(2)
+      },
+      issues: issues,
+      userDetails: userDetails
+    });
+
+  } catch (error) {
+    console.error('❌ Error during balance verification:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to verify balances',
+      details: error.message 
+    });
+  }
+});
+
+// Admin: Fix all user balances
+app.post('/api/admin/fix-balances', async (req, res) => {
+  try {
+    console.log('🚀 Starting comprehensive user balance fix...');
+    
+    // Get all users
+    const users = await User.find({}).sort({ createdAt: -1 });
+    console.log(`👥 Found ${users.length} users to process`);
+
+    let processedCount = 0;
+    let updatedCount = 0;
+    let taskUnlockedCount = 0;
+    let totalSystemBalance = 0;
+    const results = [];
+
+    for (const user of users) {
+      processedCount++;
+      console.log(`\n🔍 Processing user ${processedCount}/${users.length}: ${user.username} (${user.email})`);
+
+      // Calculate new balance using comprehensive formula
+      const balanceData = await calculateUserBalance(user._id);
+      const newBalance = balanceData.balance;
+
+      // Determine if tasks should be unlocked
+      const shouldUnlockTasks = balanceData.totalDeposits >= 10;
+      const shouldHaveDeposited = balanceData.totalDeposits > 0;
+
+      // Check if updates are needed
+      const balanceChanged = user.balance !== newBalance;
+      const hasDepositedChanged = user.hasDeposited !== shouldHaveDeposited;
+      const tasksUnlockedChanged = user.tasksUnlocked !== shouldUnlockTasks;
+      const needsUpdate = balanceChanged || hasDepositedChanged || tasksUnlockedChanged;
+
+      if (needsUpdate) {
+        // Update user
+        user.balance = newBalance;
+        user.hasDeposited = shouldHaveDeposited;
+        user.tasksUnlocked = shouldUnlockTasks;
+        await user.save();
+
+        updatedCount++;
+        if (tasksUnlockedChanged && shouldUnlockTasks) {
+          taskUnlockedCount++;
+        }
+
+        console.log(`✅ User updated: ${user.username} - Balance: $${user.balance}`);
+      }
+
+      totalSystemBalance += newBalance;
+
+      results.push({
+        userId: user._id,
+        username: user.username,
+        email: user.email,
+        oldBalance: user.balance,
+        newBalance: newBalance,
+        totalDeposits: balanceData.totalDeposits,
+        totalTaskRewards: balanceData.totalTaskRewards,
+        totalWithdrawn: balanceData.totalWithdrawn,
+        updated: needsUpdate
+      });
+    }
+
+    console.log('\n🎉 COMPREHENSIVE BALANCE FIX COMPLETE!');
+    console.log(`📊 Summary: ${processedCount} users processed, ${updatedCount} updated, ${taskUnlockedCount} tasks unlocked`);
+
+    res.json({
+      success: true,
+      message: 'Balance fix completed successfully',
+      summary: {
+        totalUsers: processedCount,
+        usersUpdated: updatedCount,
+        tasksUnlocked: taskUnlockedCount,
+        totalSystemBalance: totalSystemBalance
+      },
+      results: results
+    });
+
+  } catch (error) {
+    console.error('❌ Error during balance fix:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fix balances',
+      details: error.message 
+    });
+  }
+});
 
 // Admin: Create notification
 app.post('/api/admin/notifications', async (req, res) => {
@@ -3339,9 +3629,11 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
 
     await withdrawalRequest.save();
 
-    // Deduct amount from user balance
-    user.balance -= amount;
+    // Recalculate user balance using comprehensive formula
+    const balanceData = await calculateUserBalance(userId);
+    user.balance = balanceData.balance;
     await user.save();
+    console.log(`✅ WITHDRAWAL REQUEST: Balance recalculated to $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
 
     res.json({
       success: true,
@@ -3709,12 +4001,14 @@ app.put('/api/admin/task-submissions/:submissionId/review', async (req, res) => 
     submission.reviewedAt = new Date();
     submission.reviewNotes = reviewNotes;
 
-    // If approved, add reward to user's balance
+    // If approved, recalculate user's balance using comprehensive formula
     if (status === 'approved' && submission.userId && submission.taskId) {
       const user = await User.findById(submission.userId._id);
       if (user) {
-        user.balance += submission.taskId.reward;
+        const balanceData = await calculateUserBalance(submission.userId._id);
+        user.balance = balanceData.balance;
         await user.save();
+        console.log(`✅ TASK APPROVED: Balance recalculated to $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       }
     }
 
@@ -3791,13 +4085,13 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
     withdrawalRequest.processedAt = new Date();
     withdrawalRequest.notes = notes;
 
-    // If rejected, refund the amount to user's balance
-    if (status === 'rejected') {
-      const user = await User.findById(withdrawalRequest.userId._id);
-      if (user) {
-        user.balance += withdrawalRequest.amount;
-        await user.save();
-      }
+    // Recalculate user balance using comprehensive formula
+    const user = await User.findById(withdrawalRequest.userId._id);
+    if (user) {
+      const balanceData = await calculateUserBalance(withdrawalRequest.userId._id);
+      user.balance = balanceData.balance;
+      await user.save();
+      console.log(`✅ WITHDRAWAL ${status.toUpperCase()}: Balance recalculated to $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
     }
 
     await withdrawalRequest.save();
