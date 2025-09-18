@@ -990,28 +990,51 @@ app.get('/logout', function(req, res, next) {
 
 app.get('/me', async (req, res) => {
   if (req.isAuthenticated() && req.user) {
-    // Return user info when authenticated
-    return res.json({ 
-      user: {
-        _id: req.user._id,
-        username: req.user.username,
-        email: req.user.email,
-        balance: req.user.balance || 0,
-        hasDeposited: req.user.hasDeposited || false,
-        tasksUnlocked: req.user.tasksUnlocked || false,
-        referralCode: req.user.referralCode
-      }
-    });
+    try {
+      // Calculate total balance using the same logic as admin panel
+      const balanceData = await calculateUserBalance(req.user._id);
+      
+      // Return user info when authenticated
+      return res.json({ 
+        user: {
+          _id: req.user._id,
+          username: req.user.username,
+          email: req.user.email,
+          balance: balanceData.balance, // Base balance (deposits + tasks - withdrawals)
+          totalBalance: balanceData.totalBalance, // Total balance including additional balance
+          additionalBalance: balanceData.additionalBalance, // Admin-added additional balance
+          hasDeposited: req.user.hasDeposited || false,
+          tasksUnlocked: req.user.tasksUnlocked || false,
+          referralCode: req.user.referralCode
+        }
+      });
+    } catch (error) {
+      console.error('Error calculating user balance in /me endpoint:', error);
+      // Fallback to basic balance if calculation fails
+      return res.json({ 
+        user: {
+          _id: req.user._id,
+          username: req.user.username,
+          email: req.user.email,
+          balance: req.user.balance || 0,
+          totalBalance: req.user.balance || 0,
+          additionalBalance: req.user.additionalBalance || 0,
+          hasDeposited: req.user.hasDeposited || false,
+          tasksUnlocked: req.user.tasksUnlocked || false,
+          referralCode: req.user.referralCode
+        }
+      });
+    }
   } else if (req.session && req.session.user) {
     // Fallback: return session user data if Passport auth failed
-          return res.json({ 
+    return res.json({ 
       user: req.session.user,
-            recovered: true
-        });
+      recovered: true
+    });
   } else {
     // Not authenticated
-        return res.status(401).json({ error: 'Not authenticated' });
-      }
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
 });
 
 app.get('/', (req, res) => {
