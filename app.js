@@ -2131,6 +2131,61 @@ app.put('/api/admin/users/:id/balance', async (req, res) => {
   }
 });
 
+// Admin: Update user additional balance
+app.put('/api/admin/users/:id/additional-balance', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { additionalBalance, reason = 'Admin adjustment' } = req.body;
+
+    // Validate input
+    if (typeof additionalBalance !== 'number' || isNaN(additionalBalance)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Additional balance must be a valid number' 
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const oldAdditionalBalance = user.additionalBalance || 0;
+    const oldTotalBalance = (user.balance || 0) + oldAdditionalBalance;
+
+    // Update additional balance
+    user.additionalBalance = additionalBalance;
+    await user.save();
+
+    // Calculate new total balance
+    const balanceData = await calculateUserBalance(user._id);
+    const newTotalBalance = balanceData.totalBalance;
+
+    console.log(`✅ ADMIN ADDITIONAL BALANCE UPDATE: ${user.username} - Additional: $${oldAdditionalBalance} → $${additionalBalance} | Total: $${oldTotalBalance} → $${newTotalBalance}`);
+
+    res.json({
+      success: true,
+      message: `Successfully updated additional balance for ${user.username}`,
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        balance: balanceData.balance,
+        additionalBalance: user.additionalBalance,
+        totalBalance: newTotalBalance
+      },
+      oldAdditionalBalance,
+      newAdditionalBalance: additionalBalance,
+      oldTotalBalance,
+      newTotalBalance,
+      reason
+    });
+  } catch (err) {
+    console.error('Error updating additional balance:', err);
+    res.status(500).json({ error: 'Failed to update additional balance', details: err.message });
+  }
+});
+
 // Notification Schema
 const notificationSchema = new mongoose.Schema({
   title: String,
