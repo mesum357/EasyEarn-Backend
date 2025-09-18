@@ -1971,13 +1971,24 @@ app.get('/api/admin/users', async (req, res) => {
       .skip(skip)
       .limit(limit);
     
+    // Calculate total balance for each user (including additional balance)
+    const usersWithTotalBalance = await Promise.all(users.map(async (user) => {
+      const balanceData = await calculateUserBalance(user._id);
+      return {
+        ...user.toObject(),
+        totalBalance: balanceData.totalBalance,
+        baseBalance: balanceData.balance,
+        additionalBalance: balanceData.additionalBalance
+      };
+    }));
+    
     // Calculate pagination metadata
     const totalPages = Math.ceil(total / limit);
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
     
     res.json({ 
-      users,
+      users: usersWithTotalBalance,
       pagination: {
         currentPage: page,
         totalPages,
@@ -2166,6 +2177,12 @@ const TaskSubmission = mongoose.model('TaskSubmission', taskSubmissionSchema);
 // Utility function for calculating user balance
 async function calculateUserBalance(userId) {
   try {
+    // Get user to access additional balance
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
     // Get total confirmed deposits
     const totalConfirmedDeposits = await Deposit.aggregate([
       { $match: { userId: userId, status: 'confirmed' } },
@@ -2189,12 +2206,18 @@ async function calculateUserBalance(userId) {
     ]);
     const totalWithdrawn = totalWithdrawals.length > 0 ? totalWithdrawals[0].total : 0;
 
-    // Calculate balance: (deposits - $10) + task rewards - withdrawals
+    // Get additional balance (admin-added amount)
+    const additionalBalance = user.additionalBalance || 0;
+
+    // Calculate balance: (deposits - $10) + task rewards + additional balance - withdrawals
     const depositContribution = Math.max(0, totalDeposits - 10);
-    const balance = Math.max(0, depositContribution + totalTaskRewards - totalWithdrawn);
+    const baseBalance = Math.max(0, depositContribution + totalTaskRewards - totalWithdrawn);
+    const totalBalance = baseBalance + additionalBalance;
 
     return {
-      balance,
+      balance: baseBalance, // Base balance without additional balance
+      totalBalance, // Total balance including additional balance
+      additionalBalance,
       totalDeposits,
       totalTaskRewards,
       totalWithdrawn,
@@ -2204,6 +2227,8 @@ async function calculateUserBalance(userId) {
     console.error('Error calculating user balance:', error);
     return {
       balance: 0,
+      totalBalance: 0,
+      additionalBalance: 0,
       totalDeposits: 0,
       totalTaskRewards: 0,
       totalWithdrawn: 0,
