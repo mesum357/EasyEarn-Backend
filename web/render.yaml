@@ -1,0 +1,67 @@
+services:
+  # PostgreSQL Database
+  - type: pspg
+    name: calculator-db
+    plan: free  # Free tier has 90-day data retention limit
+    region: oregon
+    databaseName: calculator_db
+    user: calculator_user
+
+  # Backend API Service (Express.js)
+  - type: web
+    name: backend-api
+    env: node
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    nodeVersion: 20
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        generateValue: true
+      - key: DB_USER
+        fromDatabase:
+          name: calculator-db
+          property: user
+      - key: DB_HOST
+        fromDatabase:
+          name: calculator-db
+          property: host
+      - key: DB_NAME
+        fromDatabase:
+          name: calculator-db
+          property: database
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: calculator-db
+          property: password
+      - key: DB_PORT
+        fromDatabase:
+          name: calculator-db
+          property: port
+
+  # Frontend Next.js App
+  - type: web
+    name: nextjs-app
+    env: node
+    plan: free  # Change to 'starter' or 'standard' for paid plans
+    region: oregon  # Change to your preferred region
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    nodeVersion: 20  # Next.js 15 requires Node 18+, using 20 for LTS
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        generateValue: true
+      # Set this manually in Render dashboard after deployment
+      # Format: https://backend-api.onrender.com
+      # - key: NEXT_PUBLIC_API_URL
+      #   value: https://backend-api.onrender.com
+    # Uncomment and add your environment variables here if needed
+    # - key: FIREBASE_API_KEY
+    #   sync: false  # Set this in Render dashboard instead for security
+
