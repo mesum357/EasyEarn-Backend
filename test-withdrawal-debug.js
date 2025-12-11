@@ -1,119 +1,53 @@
+require('dotenv').config();
 const axios = require('axios');
 
 const BASE_URL = 'http://localhost:3005';
 
-// Create axios instance with cookie jar
-const axiosInstance = axios.create({
-  baseURL: BASE_URL,
-  withCredentials: true,
-  headers: {
-    'Content-Type': 'application/json',
-  }
-});
-
-async function testWithdrawalEndpoints() {
-  console.log('🔍 Debugging Withdrawal Endpoints...\n');
-
+async function testWithdrawalSystem() {
   try {
-    // Step 1: Test backend health
-    console.log('1. Testing backend health...');
-    const healthResponse = await axiosInstance.get('/health');
-    console.log('✅ Backend health:', healthResponse.data.status);
+    console.log('🧪 Testing Withdrawal System...\n');
 
-    // Step 2: Test with a simple authenticated request
-    console.log('\n2. Testing authenticated endpoints...');
-    
-    // First, let's try to register and login a user
-    const testEmail = `debug${Date.now()}@test.com`;
-    console.log('Registering user:', testEmail);
-    
-    await axiosInstance.post('/register', {
-      username: testEmail,
-      password: 'password123',
-      confirmPassword: 'password123',
-      email: testEmail
-    });
-    console.log('✅ Registration successful');
-
-    // Login (this will fail due to email verification requirement)
-    console.log('Logging in...');
+    // 1. Test withdrawal requirements endpoint
+    console.log('1. Testing /api/withdrawal-requirements...');
     try {
-      const loginResponse = await axiosInstance.post('/login', {
-        username: testEmail,
-        password: 'password123'
+      const requirementsResponse = await axios.get(`${BASE_URL}/api/withdrawal-requirements`, {
+        withCredentials: true
       });
-      console.log('✅ Login response:', loginResponse.data);
+      console.log('✅ Requirements Response:', requirementsResponse.data);
     } catch (error) {
-      console.log('⚠️ Login failed (expected):', error.response?.data?.error);
+      console.log('❌ Requirements Error:', error.response?.data || error.message);
     }
 
-    // Step 2.5: Verify the user manually (bypass email verification)
-    console.log('\n2.5. Manually verifying user...');
+    // 2. Test withdrawal request endpoint
+    console.log('\n2. Testing /api/withdrawal-request...');
     try {
-      const verifyResponse = await axiosInstance.post('/api/admin/verify-user', {
-        email: testEmail
+      const withdrawalResponse = await axios.post(`${BASE_URL}/api/withdrawal-request`, {
+        amount: 25,
+        walletAddress: 'test-wallet-address'
+      }, {
+        withCredentials: true
       });
-      console.log('✅ User verified manually:', verifyResponse.data);
+      console.log('✅ Withdrawal Response:', withdrawalResponse.data);
     } catch (error) {
-      console.log('❌ Manual verification failed:', error.response?.data);
-      return; // Can't proceed if verification fails
-    }
-
-    // Step 2.6: Login again after verification
-    console.log('\n2.6. Logging in after verification...');
-    try {
-      const loginResponse2 = await axiosInstance.post('/login', {
-        username: testEmail,
-        password: 'password123'
-      });
-      console.log('✅ Login successful after verification:', loginResponse2.data);
-    } catch (error) {
-      console.log('❌ Login after verification failed:', error.response?.data);
-      return; // Can't proceed if login fails
-    }
-
-    // Step 3: Test withdrawal requirements endpoint
-    console.log('\n3. Testing /api/withdrawal-requirements...');
-    try {
-      const startTime = Date.now();
-      const requirementsResponse = await axiosInstance.get('/api/withdrawal-requirements');
-      const endTime = Date.now();
-      
-      console.log(`✅ Requirements endpoint working! (${endTime - startTime}ms)`);
-      console.log('Response:', JSON.stringify(requirementsResponse.data, null, 2));
-    } catch (error) {
-      console.log('❌ Requirements endpoint failed:');
+      console.log('❌ Withdrawal Error:', error.response?.data || error.message);
       console.log('Status:', error.response?.status);
-      console.log('Error:', error.response?.data);
-      console.log('Message:', error.message);
-      console.log('Code:', error.code);
+      console.log('Headers:', error.response?.headers);
     }
 
-    // Step 4: Test withdrawal history endpoint
-    console.log('\n4. Testing /api/withdrawal-history...');
+    // 3. Test withdrawal history endpoint
+    console.log('\n3. Testing /api/withdrawal-history...');
     try {
-      const startTime = Date.now();
-      const historyResponse = await axiosInstance.get('/api/withdrawal-history');
-      const endTime = Date.now();
-      
-      console.log(`✅ History endpoint working! (${endTime - startTime}ms)`);
-      console.log('Response:', JSON.stringify(historyResponse.data, null, 2));
+      const historyResponse = await axios.get(`${BASE_URL}/api/withdrawal-history`, {
+        withCredentials: true
+      });
+      console.log('✅ History Response:', historyResponse.data);
     } catch (error) {
-      console.log('❌ History endpoint failed:');
-      console.log('Status:', error.response?.status);
-      console.log('Error:', error.response?.data);
-      console.log('Message:', error.message);
-      console.log('Code:', error.code);
+      console.log('❌ History Error:', error.response?.data || error.message);
     }
-
-    console.log('\n🎉 Debug test completed!');
 
   } catch (error) {
-    console.error('❌ Test failed:', error.response?.data || error.message);
-    if (error.response?.status) {
-      console.error('Status:', error.response.status);
-    }
+    console.error('❌ Test failed:', error.message);
   }
 }
 
-testWithdrawalEndpoints(); 
+testWithdrawalSystem(); 

@@ -5,6 +5,7 @@ const MongoStore = require('connect-mongo');
 const passport = require('passport');
 const findOrCreate = require('mongoose-findorcreate');
 const passportLocalMongoose = require('passport-local-mongoose');
+const LocalStrategy = require('passport-local').Strategy;
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
@@ -14,6 +15,8 @@ const app = express();
 const multer = require('multer');
 const path = require('path');
 
+// Import models
+const User = require('./React Websitee/pak-nexus/backend/models/User');
 
 // mongodb+srv://mesum357:pDliM118811@cluster0.h3knh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
@@ -38,46 +41,27 @@ const DISABLE_EMAILS = process.env.DISABLE_EMAILS === 'true' || true; // Current
 // Log email status on startup
 console.log(`📧 Email sending is ${DISABLE_EMAILS ? 'DISABLED' : 'ENABLED'} for testing`);
 
-// Trust proxy for deployment platforms like Railway, Render, Vercel
-// Railway requires trust proxy to be set for proper session handling
-if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
-    app.set('trust proxy', 1);
-    console.log('✅ Trust proxy enabled for production environment');
-} else {
-    // For localhost development, we still need some proxy trust for session cookies
-    app.set('trust proxy', 'loopback');
-    console.log('🔧 Trust proxy set to loopback for development');
-}
+// Trust proxy for Railway deployment (required for secure cookies)
+app.set('trust proxy', 1);
 
-app.use(express.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static('public'));
-
-// Define allowed origins based on environment
-const allowedOrigins = [
+// CORS Configuration - DEFINED EARLY
+const ALLOWED_ORIGINS = [
   // Production URLs - Vercel
   'https://easyearn-frontend4.vercel.app',
-  'https://easyearn-frontend8.vercel.app',  // Added newer frontend domain
-  'https://easyearn-frontend5-5s029wzy7-ahmads-projects-9a0217f0.vercel.app', // Preview deployment
+  'https://easyearn-frontend8.vercel.app',
+  'https://easyearn-frontend5-5s029wzy7-ahmads-projects-9a0217f0.vercel.app',
   'https://easyearn-adminpanel2.vercel.app',
-  // Railway deployments - Updated with current URLs
-  'https://caring-meat-production.up.railway.app', // Admin Dashboard
-  'https://easyearn-frontend-production.up.railway.app', // Main Frontend
-  'https://easyearn-frontend-production-760e.up.railway.app', // Previous Frontend URL
-  'https://easyearn-frontend-production-5a04.up.railway.app', // Current Frontend URL
-  'https://gleaming-miracle-production.up.railway.app', // Project Frontend URL
-  'https://easyearn-adminpanel-production.up.railway.app', // Railway Admin Panel
-  'https://easyearn-adminpanel-production.up.railway.app/', // Railway Admin Panel with slash
-  // Current backend URL - Add your actual frontend URL here
-  'https://easyearn-backend-production-01ac.up.railway.app', // Current backend for testing
+  // Railway deployments
+  'https://caring-meat-production.up.railway.app',
+  'https://easyearn-frontend-production.up.railway.app',
+  'https://easyearn-frontend-production-760e.up.railway.app',
+  'https://easyearn-frontend-production-5a04.up.railway.app',
+  'https://gleaming-miracle-production.up.railway.app',
+  'https://easyearn-adminpanel-production.up.railway.app',
+  // Railway backend (for testing)
+  'https://easyearn-backend-production-01ac.up.railway.app',
   // Custom domain
-  'https://kingeasyearn.com', // Production Frontend URL
-  // Additional Railway patterns
-  /\.railway\.app$/,
-  /\.vercel\.app$/,
-  // Backend URLs
-  'https://easyearn-backend-4.onrender.com',
-  'https://easyearn-backend-production.up.railway.app', // Railway backend URL
+  'https://kingeasyearn.com',
   // Development origins
   'http://localhost:3000',
   'http://localhost:3005',
@@ -91,128 +75,259 @@ const allowedOrigins = [
   'http://127.0.0.1:3005',
   'http://192.168.1.7:8080',
   'http://192.168.1.7:3000',
+  'http://192.168.1.36:8080',
+  'http://192.168.1.36:3000',
   // VPS IP addresses
   'http://31.97.39.46:8080',
   'http://31.97.39.46:3000',
 ];
 
 // Log allowed origins for debugging
-console.log(`CORS configured with ${allowedOrigins.length} allowed origins:`);
-allowedOrigins.forEach(origin => console.log(` - ${origin}`));
+console.log(`🚀 CORS configured with ${ALLOWED_ORIGINS.length} allowed origins:`);
+ALLOWED_ORIGINS.forEach(origin => console.log(`   - ${origin}`));
+
+// Test endpoint for CORS debugging
+app.get('/api/test-cors', (req, res) => {
+  console.log('🧪 CORS test endpoint hit');
+  console.log('Origin:', req.headers.origin);
+  console.log('All headers:', req.headers);
+  
+  // Explicitly set CORS headers for this endpoint
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for test endpoint: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
+  res.json({ 
+    success: true, 
+    message: 'CORS test successful',
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString(),
+    allowedOrigins: ALLOWED_ORIGINS
+  });
+});
+
+app.use(express.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static('public'));
+
+// EARLY CORS HEADERS - Apply before any other middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  console.log(`🚀 EARLY CORS - Request from origin: ${origin}`);
+  console.log(`🚀 EARLY CORS - Request method: ${req.method}`);
+  console.log(`🚀 EARLY CORS - Request URL: ${req.url}`);
+  
+  // Set CORS headers for all requests from allowed origins
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ EARLY CORS - Setting headers for: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  } else if (origin) {
+    console.log(`❌ EARLY CORS - Origin not allowed: ${origin}`);
+  } else {
+    console.log(`ℹ️ EARLY CORS - No origin header present`);
+  }
+  
+  // Handle preflight requests immediately
+  if (req.method === 'OPTIONS') {
+    console.log(`🛡️ EARLY CORS - Handling preflight for: ${req.url}`);
+    res.status(200).end();
+    return;
+  }
+  
+  next();
+});
 
 // Configure CORS with proper settings for credentials
 app.use(cors({
-  origin: function(origin, callback) {
-    // Handle requests with no origin (like mobile apps, curl, or Postman)
+  origin: (origin, callback) => {
+    console.log(`🔍 CORS check for origin: ${origin}`);
     if (!origin) {
-      console.log('Request with no origin - allowing access');
+      console.log('✅ Allowing request with no origin (server-to-server)');
       return callback(null, true);
     }
-    
-    // Check if origin is allowed (handle both strings and regex patterns)
-    const isAllowed = allowedOrigins.some(allowedOrigin => {
-      if (typeof allowedOrigin === 'string') {
-        return allowedOrigin === origin;
-      } else if (allowedOrigin instanceof RegExp) {
-        return allowedOrigin.test(origin);
-      }
-      return false;
-    });
-    
-    if (isAllowed) {
-      console.log(`CORS allowed origin: ${origin}`);
-      return callback(null, origin); // Return the specific origin that was allowed
-    } else {
-      console.log(`CORS blocked origin: ${origin}`);
-      // Instead of throwing an error, just reject with false
-      return callback(null, false);
+    if (ALLOWED_ORIGINS.includes(origin)) {
+      console.log(`✅ Allowing origin: ${origin}`);
+      return callback(null, true);
     }
+    console.log(`❌ Blocking origin: ${origin}`);
+    console.log('Allowed origins:', ALLOWED_ORIGINS);
+    return callback(new Error('Origin not allowed'));
   },
-  credentials: true, // Critical for cookies and authentication
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie'],
-  exposedHeaders: ['Set-Cookie'], // Allow frontend to see Set-Cookie header
-  maxAge: 86400, // Cache preflight request results for 1 day (in seconds)
-  optionsSuccessStatus: 200 // Some legacy browsers (IE11) choke on 204
+  exposedHeaders: ['Set-Cookie'],
+  maxAge: 86400,
+  optionsSuccessStatus: 200
 }));
 
 // Handle preflight OPTIONS requests
-app.options('*', function(req, res) {
-  console.log('OPTIONS request received from origin:', req.headers.origin);
-  console.log('OPTIONS request path:', req.path);
-  
-  // Set appropriate CORS headers
+app.options('*', cors());
+
+// Add CORS headers to all responses as a fallback - MORE ROBUST VERSION
+app.use((req, res, next) => {
   const origin = req.headers.origin;
+  console.log(`🌐 Request from origin: ${origin}`);
+  console.log(`🌐 Request method: ${req.method}`);
+  console.log(`🌐 Request URL: ${req.url}`);
   
-  // Check if origin is allowed (handle both strings and regex patterns)
-  const isAllowed = allowedOrigins.some(allowedOrigin => {
-    if (typeof allowedOrigin === 'string') {
-      return allowedOrigin === origin;
-    } else if (allowedOrigin instanceof RegExp) {
-      return allowedOrigin.test(origin);
-    }
-    return false;
-  });
-  
-  if (isAllowed || !origin) { // Allow requests with no origin as well
-    // Set explicit CORS headers for proper cross-domain cookie handling
-    res.header('Access-Control-Allow-Origin', origin || '*');
+  // Always set CORS headers for allowed origins
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for origin: ${origin}`);
+    res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
-    res.header('Access-Control-Expose-Headers', 'Set-Cookie'); // Important for cookie handling
-    res.header('Access-Control-Max-Age', '86400'); // 24 hours
-    
-    // Additional headers for better cross-origin cookie support
-    res.header('Vary', 'Origin');
-    res.status(200).end();
+    res.header('Access-Control-Expose-Headers', 'Set-Cookie');
+    res.header('Access-Control-Max-Age', '86400');
+  } else if (origin) {
+    console.log(`❌ Origin not in allowed list: ${origin}`);
   } else {
-    console.log('OPTIONS request blocked due to origin not allowed:', origin);
-    res.status(403).json({ error: 'CORS not allowed for this origin' });
+    console.log(`ℹ️ No origin header present`);
+  }
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    console.log(`🛡️ Handling preflight request for: ${req.url}`);
+    res.status(200).end();
+    return;
+  }
+  
+  next();
+});
+
+// Single MongoStore instance
+const sessionStore = MongoStore.create({
+  mongoUrl: process.env.MONGODB_URI,
+  collectionName: 'sessions',
+  ttl: 60 * 60 * 24 * 14, // 14 days
+  autoRemove: 'native',
+  stringify: false
+});
+
+// Session configuration - single source of truth
+app.use(session({
+  name: process.env.SESSION_NAME || 'easyearn.sid',
+  secret: process.env.SESSION_SECRET || 'fallback-secret-key-change-in-production',
+  resave: true,
+  saveUninitialized: true,
+  store: sessionStore,
+  cookie: {
+    httpOnly: true,
+    maxAge: Number(process.env.SESSION_MAX_AGE || 7 * 24 * 60 * 60 * 1000), // 7 days default
+    secure: process.env.NODE_ENV === 'production', // Always secure in production
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
+    path: '/'
+  }
+}));
+
+// Log session configuration
+console.log('Session configuration:', {
+  name: process.env.SESSION_NAME || 'easyearn.sid',
+  store: 'MongoStore',
+  collectionName: 'sessions',
+  ttl: '14 days',
+  cookie: {
+    httpOnly: true,
+    maxAge: Number(process.env.SESSION_MAX_AGE || 7 * 24 * 60 * 60 * 1000),
+    secure: process.env.NODE_ENV === 'production', // Always secure in production
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
+    path: '/'
   }
 });
 
-// Session configuration
-const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
-const isLocalDev = !isProduction || process.env.FORCE_LOCAL_DEV === 'true';
+app.use(passport.initialize());
+app.use(passport.session());
 
-console.log('Environment:', process.env.NODE_ENV);
-console.log('Railway Environment:', process.env.RAILWAY_ENVIRONMENT ? 'Set' : 'Not Set');
-console.log('Is Production:', isProduction);
-console.log('Session Store URL:', process.env.MONGODB_URI ? 'Set' : 'Not Set');
+// Passport Local Strategy Configuration
+passport.use(new LocalStrategy({
+    usernameField: 'username',
+    passwordField: 'password'
+}, async function(username, password, done) {
+    try {
+        const user = await User.findOne({ 
+            $or: [
+                { username: username },
+                { email: username }
+            ]
+        });
+        
+        if (!user) {
+            return done(null, false, { message: 'User not found' });
+        }
+        
+        // Use the authenticate method from passport-local-mongoose
+        const result = await user.authenticate(password);
+        if (result.user) {
+            return done(null, result.user);
+        } else {
+            return done(null, false, { message: 'Invalid password' });
+        }
+    } catch (error) {
+        console.error('Passport local strategy error:', error);
+        return done(error);
+    }
+}));
 
-// Clean up any existing sessions for the same user
-const sessionCleanup = async (userId) => {
+// Session recovery middleware
+app.use(async (req, res, next) => {
   try {
-    const sessionStore = MongoStore.create({
-      mongoUrl: process.env.MONGODB_URI,
-      collectionName: 'sessions'
-    });
-    
-    // We can't directly access session data by user ID because it's serialized
-    // This is a placeholder for potential future implementation
-    console.log(`Session cleanup requested for user ID: ${userId}`);
+    // If session is empty but cookie exists, try to recover
+    if (!req.session || Object.keys(req.session).length === 0) {
+      const sessionName = process.env.SESSION_NAME || 'easyearn.sid';
+      const cookieMatch = req.headers.cookie?.match(new RegExp(`${sessionName}=([^;]+)`));
+      
+      if (cookieMatch && cookieMatch[1]) {
+        const sid = cookieMatch[1];
+        console.log(`🔄 Attempting session recovery for SID: ${sid}`);
+        
+        // Try to get session from store
+        sessionStore.get(sid, (err, storedSession) => {
+          if (!err && storedSession) {
+            console.log('✅ Session recovered from store');
+            // Restore session data
+            req.sessionID = sid;
+            Object.assign(req.session, storedSession);
+            
+            // If session has user data, restore authentication
+            if (storedSession.passport && storedSession.passport.user) {
+              User.findById(storedSession.passport.user).then(user => {
+                if (user) {
+                  req.user = user;
+                  console.log(`✅ User authentication restored: ${user.username}`);
+                }
+                next();
+              }).catch(() => next());
+            } else {
+              next();
+            }
+          } else {
+            console.log('❌ Session recovery failed');
+            next();
+          }
+        });
+        return;
+      }
+    }
+    next();
   } catch (error) {
-    console.error('Session cleanup error:', error);
+    console.error('Session recovery middleware error:', error);
+    next();
   }
-};
+});
 
-// JWT token generation for cross-origin authentication
-const generateJWTToken = (user) => {
-  const jwt = require('jsonwebtoken');
-  const secret = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'fallback-jwt-secret';
-  return jwt.sign(
-    { 
-      userId: user._id, 
-      username: user.username,
-      email: user.email 
-    }, 
-    secret, 
-    { expiresIn: '24h' }
-  );
-};
-
-// JWT token verification middleware
+// JWT verification middleware (kept for backward compatibility)
 const verifyJWTToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -241,100 +356,6 @@ const verifyJWTToken = (req, res, next) => {
   }
 };
 
-// Define cookie settings based on environment
-const cookieSettings = {
-  // Always set httpOnly for security
-  httpOnly: true,
-  // Session lifetime from env or default to 24 hours
-  maxAge: parseInt(process.env.SESSION_MAX_AGE) || 24 * 60 * 60 * 1000,
-  // Set path to root to ensure cookie is available across the site
-  path: '/',
-};
-
-// Log session lifetime for debugging
-const sessionHours = cookieSettings.maxAge / (1000 * 60 * 60);
-console.log(`Session lifetime: ${sessionHours} hours (${cookieSettings.maxAge}ms)`);
-
-// Always use SameSite=None in production for cross-origin cookie sharing
-// This is CRITICAL when frontend and backend are on different domains
-if (isProduction) {
-  cookieSettings.sameSite = 'none';
-  cookieSettings.secure = true;
-  console.log('Production environment: Using secure cookies with SameSite=None for cross-origin support');
-} else {
-  // For cross-origin requests, always use secure settings
-  cookieSettings.sameSite = 'none';
-  cookieSettings.secure = true;
-  console.log('Development environment: Using secure cookies with SameSite=None for cross-origin support');
-}
-
-// Log the cookie settings with detailed analysis
-console.log('🍪 COOKIE CONFIGURATION ANALYSIS:');
-console.log('   Environment:', { NODE_ENV: process.env.NODE_ENV, RAILWAY_ENVIRONMENT: process.env.RAILWAY_ENVIRONMENT });
-console.log('   Is Production:', isProduction);
-console.log('   Is Local Dev:', isLocalDev);
-console.log('   Cookie Settings:', {
-    httpOnly: cookieSettings.httpOnly,
-    secure: cookieSettings.secure,
-    sameSite: cookieSettings.sameSite,
-    path: cookieSettings.path,
-    domain: cookieSettings.domain || 'not set',
-    maxAge: cookieSettings.maxAge,
-    maxAgeHours: Math.round((cookieSettings.maxAge / (1000 * 60 * 60)) * 100) / 100
-});
-console.log('   Session Name:', process.env.SESSION_NAME || 'easyearn.sid');
-
-// Domain setting (optional) - if you want to share cookies across subdomains
-if (process.env.COOKIE_DOMAIN) {
-  cookieSettings.domain = process.env.COOKIE_DOMAIN;
-  console.log('Setting cookie domain:', process.env.COOKIE_DOMAIN);
-} else if (isProduction) {
-  // For cross-origin requests in production, don't set domain to allow browser to handle it
-  console.log('Production environment: Not setting cookie domain to allow cross-origin cookies');
-}
-
-let sessionStore;
-if (process.env.MONGODB_URI) {
-  sessionStore = MongoStore.create({
-    mongoUrl: process.env.MONGODB_URI,
-    collectionName: 'sessions',
-    touchAfter: 24 * 3600, // lazy session update
-    autoRemove: 'native',
-    ttl: 24 * 60 * 60, // 24 hours session TTL
-    stringify: false, // Don't stringify session data for better debugging
-  });
-} else {
-  console.warn('⚠️ MONGODB_URI not set. Falling back to in-memory session store for local development.');
-  sessionStore = new session.MemoryStore();
-}
-
-app.use(session({
-    secret: process.env.SESSION_SECRET || 'fallback-secret-key-change-in-production',
-    resave: true, // Changed to true to ensure session is saved
-    saveUninitialized: false,
-    store: sessionStore,
-    cookie: cookieSettings,
-    name: process.env.SESSION_NAME || 'easyearn.sid', // Custom session name from env
-    proxy: isProduction, // Trust proxy in production
-    rolling: true, // Extend session on every request
-    unset: 'destroy' // Destroy session when unset
-}));
-
-// Get session name for logging and reference
-const sessionName = process.env.SESSION_NAME || 'easyearn.sid';
-
-// Log session store configuration
-console.log('Session store configured with options:', {
-  collectionName: 'sessions',
-  ttl: '24 hours',
-  cookie: cookieSettings,
-  sessionName: 'easyearn.sid'
-});
-
-app.use(passport.initialize());
-app.use(passport.session());
-
-// Add JWT verification middleware for cross-origin requests
 app.use(verifyJWTToken);
 
 // Error handling for unhandled promise rejections and uncaught exceptions
@@ -348,122 +369,14 @@ process.on('uncaughtException', (error) => {
   // Don't crash the server, just log the error
 });
 
-// Enhanced debug middleware to log session info and handle session recovery
-app.use(async (req, res, next) => {
-  // Log all requests with detailed session info for debugging
-  console.log(`\n🔍 REQUEST DEBUG: ${req.method} ${req.path}`);
-  console.log(`   Session ID: ${req.sessionID}`);
-  console.log(`   Is Authenticated: ${req.isAuthenticated()}`);
-  console.log(`   User: ${req.user ? req.user.username : 'none'}`);
-  console.log(`   Request Cookies: ${req.headers.cookie || 'none'}`);
-  console.log(`   Origin: ${req.headers.origin || 'none'}`);
-  
-  // Check if session cookie matches current session ID and handle recovery
-  if (req.headers.cookie) {
-    const cookieMatch = req.headers.cookie.match(/easyearn\.sid=([^;]+)/);
-    if (cookieMatch) {
-      const cookieSessionId = cookieMatch[1];
-      if (cookieSessionId !== req.sessionID) {
-        console.log(`   ⚠️ SESSION ID MISMATCH: Cookie=${cookieSessionId}, Server=${req.sessionID}`);
-        
-        // Try to recover the session from the cookie session ID
-        try {
-          const session = await new Promise((resolve, reject) => {
-            sessionStore.get(cookieSessionId, (err, session) => {
-              if (err) reject(err);
-              else resolve(session);
-            });
-          });
-          
-          if (session && session.userId) {
-            console.log(`   🔄 RECOVERING SESSION: Found session for user ${session.userId}`);
-            
-            // Load the user and restore authentication
-            const user = await User.findById(session.userId);
-            if (user) {
-              console.log(`   ✅ SESSION RECOVERY SUCCESS: User ${user.username}`);
-              
-              // Don't replace req.session directly - copy data instead
-              req.session.userId = session.userId;
-              req.session.passport = session.passport || {};
-              if (session.passport && session.passport.user) {
-                req.session.passport.user = session.passport.user;
-              }
-              
-              // Use req.login to properly set up authentication
-              req.login(user, (loginErr) => {
-                if (!loginErr) {
-                  console.log('Session recovery login successful');
-                } else {
-                  console.error('Session recovery login error:', loginErr);
-                }
-              });
-            }
-          } else {
-            console.log(`   ❌ SESSION RECOVERY FAILED: No valid session found`);
-          }
-        } catch (error) {
-          console.log(`   ❌ SESSION RECOVERY ERROR: ${error.message}`);
-        }
-      } else {
-        console.log(`   ✅ SESSION ID MATCH: ${cookieSessionId}`);
-      }
-    }
-  }
-  
-  // Add additional headers for cross-origin cookie support
-  if (req.headers.origin) {
-    const isAllowed = allowedOrigins.some(allowedOrigin => {
-      if (typeof allowedOrigin === 'string') {
-        return allowedOrigin === req.headers.origin;
-      } else if (allowedOrigin instanceof RegExp) {
-        return allowedOrigin.test(req.headers.origin);
-      }
-      return false;
-    });
-    if (isAllowed) {
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Expose-Headers', 'Set-Cookie');
-    }
-  }
-  
+// Simple request logging middleware
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path} - Session: ${req.sessionID || 'none'}`);
   next();
 });
 
-// FIXED: Session cookie middleware - only set cookies for authentication events
-app.use((req, res, next) => {
-  // Extract session ID from cookie if present
-  let cookieSessionId = null;
-  if (req.headers.cookie) {
-    const cookieMatch = req.headers.cookie.match(new RegExp(`${sessionName}=([^;]+)`));
-    if (cookieMatch) {
-      cookieSessionId = cookieMatch[1];
-    }
-  }
-  
-  // Check if there's a session ID mismatch (cookie vs server session)
-  const sessionMismatch = cookieSessionId && cookieSessionId !== req.sessionID;
-  
-  // If there's a mismatch, try to load the existing session from cookie
-  if (sessionMismatch && cookieSessionId) {
-    console.log(`🔄 SESSION MISMATCH DETECTED: Cookie=${cookieSessionId}, Server=${req.sessionID}`);
-    console.log('   Attempting to use cookie session ID instead of creating new session');
-    
-    // Try to load the session from the store using the cookie session ID
-    sessionStore.get(cookieSessionId, (err, existingSession) => {
-      if (!err && existingSession) {
-        console.log('✅ Found existing session in store, using it');
-        // Replace the current session with the existing one
-        req.sessionID = cookieSessionId;
-        Object.assign(req.session, existingSession);
-      } else {
-        console.log('❌ Could not find existing session in store, keeping new session');
-      }
-    });
-  }
-  
-  next();
-});
+// Session name constant for consistent usage
+const sessionName = process.env.SESSION_NAME || 'easyearn.sid';
 
 // Test endpoint to verify session functionality
 app.get('/test-session', (req, res) => {
@@ -484,69 +397,19 @@ app.get('/test-session', (req, res) => {
   });
 });
 
-// Debug endpoint for cross-origin cookie testing
+// Debug endpoint for cross-origin cookie testing (simplified)
 app.get('/debug-auth', (req, res) => {
-  console.log('Debug auth request - Headers:', {
-    origin: req.headers.origin,
-    referer: req.headers.referer,
-    userAgent: req.headers['user-agent'],
-    contentType: req.headers['content-type'],
-    accept: req.headers.accept
-  });
-  
-  // Try to recover session from cookie if session ID doesn't match
-  let recoveredSession = false;
-  let recoveredUser = null;
-  
-  if (req.headers.cookie && !req.isAuthenticated()) {
-    const cookieMatch = req.headers.cookie.match(/easyearn\.sid=([^;]+)/);
-    if (cookieMatch && cookieMatch[1] !== req.sessionID) {
-      console.log('Session ID mismatch detected. Attempting recovery...');
-      console.log('Cookie session ID:', cookieMatch[1]);
-      console.log('Server session ID:', req.sessionID);
-      
-      // Try to find the session in the store
-      sessionStore.get(cookieMatch[1], (err, session) => {
-        if (session && session.userId) {
-          console.log('Found session with userId:', session.userId);
-          // Try to recover user
-          User.findById(session.userId).then(user => {
-            if (user) {
-              console.log('Recovered user:', user.username);
-              req.login(user, (err) => {
-                if (!err) {
-                  console.log('Successfully recovered authentication');
-                  recoveredSession = true;
-                  recoveredUser = user;
-                }
-              });
-            }
-          });
-        }
-      });
-    }
-  }
-  
   res.json({
     sessionID: req.sessionID,
     isAuthenticated: req.isAuthenticated(),
     hasUser: !!req.user,
     hasSession: !!req.session,
     cookies: req.headers.cookie || 'No cookies sent',
-    origin: req.headers.origin,
-    userAgent: req.headers['user-agent'],
-    cookieSettings: {
-      secure: req.session?.cookie?.secure,
-      sameSite: req.session?.cookie?.sameSite,
-      domain: req.session?.cookie?.domain
-    },
-    recoveredSession: recoveredSession,
-    recoveredUser: recoveredUser ? recoveredUser.username : null,
-    allHeaders: Object.keys(req.headers)
+    origin: req.headers.origin
   });
 });
 
-// JWT login endpoint for cross-origin authentication
+// JWT login endpoint (kept for backward compatibility)
 app.post('/api/login-jwt', function(req, res, next) {
   console.log('JWT login attempt for:', req.body.email);
   
@@ -563,7 +426,17 @@ app.post('/api/login-jwt', function(req, res, next) {
     }
     
     // Generate JWT token
-    const token = generateJWTToken(user);
+    const jwt = require('jsonwebtoken');
+    const secret = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'fallback-jwt-secret';
+    const token = jwt.sign(
+      { 
+        userId: user._id, 
+        username: user.username,
+        email: user.email 
+      }, 
+      secret, 
+      { expiresIn: '24h' }
+    );
     
     console.log('JWT login successful for:', user.username);
     res.json({ 
@@ -581,128 +454,51 @@ app.post('/api/login-jwt', function(req, res, next) {
   })(req, res, next);
 });
 
-// Temporary login endpoint with forced non-secure cookies for testing
-app.post('/login-test', function(req, res, next) {
-  console.log('Test login attempt for:', req.body.username);
-  
-  passport.authenticate('local', function(err, user, info) {
-    if (err) {
-      console.error('Login error:', err);
-      return res.status(500).json({ error: 'Internal server error' });
-    }
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-    if (!user.verified) {
-      return res.status(401).json({ error: 'Please verify your email before logging in.' });
-    }
-    
-    req.logIn(user, function(err) {
-      if (err) {
-        console.error('req.logIn error:', err);
-        return res.status(500).json({ error: 'Internal server error' });
-      }
-      
-      // Force non-secure cookie for testing
-      req.session.cookie.secure = false;
-      req.session.cookie.sameSite = 'lax';
-      
-      req.session.save((err) => {
-        if (err) {
-          console.error('Session save error:', err);
-        }
-        console.log('Test login successful, session saved');
-        console.log('Cookie settings:', {
-          secure: req.session.cookie.secure,
-          sameSite: req.session.cookie.sameSite,
-          sessionID: req.sessionID
-        });
-        
-        return res.status(200).json({
-          success: true,
-          message: 'Login successful',
-          user: { id: user._id, email: user.email, username: user.username },
-          sessionID: req.sessionID
-        });
-      });
-    });
-  })(req, res, next);
-});
+// Test login endpoint removed - use standard /login endpoint
 
-// MONGOOSE
-const mongooseOptions = {};
+// MONGOOSE - configuration for stability
+const mongooseOptions = {
+    serverSelectionTimeoutMS: 30000, // 30 seconds
+    connectTimeoutMS: 30000, // 30 seconds
+    socketTimeoutMS: 30000, // 30 seconds
+    maxPoolSize: 10,
+    minPoolSize: 5,
+    maxIdleTimeMS: 30000,
+    bufferCommands: false
+    // bufferMaxEntries removed - deprecated in newer MongoDB driver versions
+};
 
 if (process.env.NODE_ENV === 'production') {
-    mongooseOptions.ssl = true;
+    // SSL/TLS configuration for production
     mongooseOptions.tls = true;
     mongooseOptions.tlsAllowInvalidCertificates = true;
     mongooseOptions.tlsAllowInvalidHostnames = true;
 }
 
 // Get MongoDB URI from environment or use default
-const mongoURI = process.env.MONGODB_URI;
+const mongoURI = process.env.MONGODB_URI || "mongodb+srv://mesum357:pDliM118811@cluster0.h3knh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 if (!mongoURI) {
     console.error("MONGODB_URI is not defined in environment variables");
     process.exit(1);
 }
 
+// Connect to MongoDB and start server
 mongoose.connect(mongoURI, mongooseOptions)
     .then(() => {
-        console.log("Connected to MongoDB ");
+        console.log("Connected to MongoDB");
+        
+        // Start the server
+        const PORT = process.env.PORT || 3005;
+        app.listen(PORT, "0.0.0.0", () => {
+            console.log(`Server is running on port ${PORT}`);
+        });
     })
     .catch((err) => {
         console.error("Error connecting to MongoDB Atlas:", err);
         process.exit(1);
     });
 
-const userSchema = new mongoose.Schema({
-    username: String,
-    password: String,
-    googleId: String,
-    email: String,
-    profileImage: String,
-    balance: {
-        type: Number,
-        default: 0
-    },
-    hasDeposited: {
-        type: Boolean,
-        default: false
-    },
-    referralCode: {
-        type: String,
-        unique: true,
-        sparse: true
-    },
-    referredBy: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-    verified: {
-        type: Boolean,
-        default: false
-    },
-    hasDeposited: {
-        type: Boolean,
-        default: false
-    },
-    tasksUnlocked: {
-        type: Boolean,
-        default: false
-    },
-    verificationToken: String,
-    resetPasswordToken: String,
-    resetPasswordExpires: Date
-});
-
-userSchema.plugin(passportLocalMongoose);
-userSchema.plugin(findOrCreate);
-
-const User = mongoose.model('User', userSchema);
+// User model is imported from external file
 
 // Referral Schema
 const referralSchema = new mongoose.Schema({
@@ -729,10 +525,9 @@ const referralSchema = new mongoose.Schema({
 
 const Referral = mongoose.model('Referral', referralSchema);
 
-// Passport configuration
-passport.use(User.createStrategy());
-
+// Passport configuration - use manual serialization instead of createStrategy
 passport.serializeUser(function(user, done) {
+    console.log('🔄 PASSPORT SERIALIZE: Serializing user:', user.username, 'ID:', user.id);
     done(null, user.id);
 });
 
@@ -1059,152 +854,101 @@ app.get('/verify-email', async (req, res) => {
     }
 });
 
-// Special middleware to force session cookies after successful login
-app.use('/login', (req, res, next) => {
-  if (req.method === 'POST') {
-    const originalJson = res.json;
-    res.json = function(data) {
-      // Only set cookie if login was successful
-      if (data && data.success && req.sessionID) {
-        console.log('🍪 LOGIN SUCCESS: Force setting session cookie');
-        console.log('   Session ID:', req.sessionID);
-        console.log('   Origin:', req.headers.origin);
-        
-        // Force set the session cookie with explicit settings
-        res.cookie(sessionName, req.sessionID, {
-          httpOnly: true,
-          secure: true,
-          sameSite: 'none',
-          maxAge: cookieSettings.maxAge,
-          path: '/'
-        });
-        
-        console.log('   Cookie explicitly set:', `${sessionName}=${req.sessionID}`);
-      }
-      return originalJson.call(this, data);
-    };
-  }
-  next();
-});
+// Login endpoint middleware - no cookie manipulation needed
 
-// Login API route
+// Login API route with enhanced error handling
 app.post("/login", function(req, res, next) {
-    console.log('Login attempt for:', req.body.username);
-    console.log('Session ID before login:', req.sessionID);
-    console.log('Request cookies:', req.headers.cookie);
-    console.log('Request origin:', req.headers.origin);
+    console.log('🔐 Login attempt for:', req.body.username);
+    console.log('🔐 Request body:', JSON.stringify(req.body));
+    console.log('🔐 Session ID before login:', req.sessionID);
     
-    passport.authenticate("local", function(err, user, info) {
-        if (err) {
-            console.error('Login error:', err);
-            return res.status(500).json({ error: 'Internal server error' });
-        }
-        if (!user) {
-            console.log('Login failed - user not found or invalid credentials');
-            return res.status(401).json({ error: 'Invalid email or password' });
-        }
-        if (!user.verified) {
-            console.log('Login failed - user not verified');
-            return res.status(401).json({ error: 'Please verify your email before logging in.' });
-        }
-        
-        // Log in the user directly without session regeneration to avoid ID conflicts
-        req.logIn(user, function(err) {
+    try {
+        passport.authenticate("local", function(err, user, info) {
+            console.log('🔐 Passport authenticate callback called');
+            console.log('🔐 Error:', err);
+            console.log('🔐 User:', user ? `${user.username} (${user._id})` : null);
+            console.log('🔐 Info:', info);
+            
             if (err) {
-                console.error('req.logIn error:', err);
-                return res.status(500).json({ error: 'Authentication error' });
+                console.error('🔐 Passport authentication error:', err);
+                console.error('🔐 Error stack:', err.stack);
+                return res.status(500).json({ error: 'Internal server error', details: err.message });
+            }
+            if (!user) {
+                console.log('🔐 Login failed - user not found or invalid credentials');
+                return res.status(401).json({ error: 'Invalid email or password' });
+            }
+            if (!user.verified) {
+                console.log('🔐 Login failed - user not verified');
+                return res.status(401).json({ error: 'Please verify your email before logging in.' });
             }
             
-            // Make sure session data is saved before sending response
-            req.session.userId = user._id; // Store user ID explicitly in session
-            req.session.loginTime = new Date().toISOString();
-            
-            // Save session explicitly to ensure it's stored in the database
-            req.session.save(function(err) {
+            console.log('🔐 Calling req.logIn...');
+            req.logIn(user, function(err) {
+                console.log('🔐 req.logIn callback called');
                 if (err) {
-                    console.error('Session save error:', err);
-                    return res.status(500).json({ error: 'Session storage error' });
+                    console.error('🔐 req.logIn error:', err);
+                    console.error('🔐 req.logIn error stack:', err.stack);
+                    return res.status(500).json({ error: 'Authentication error', details: err.message });
                 }
                 
-                console.log('Login successful for:', user.username);
-                console.log('Session ID after login:', req.sessionID);
-                console.log('User authenticated:', req.isAuthenticated());
-                console.log('Session cookie:', req.session.cookie);
+                console.log('🔐 req.logIn successful, setting up session...');
                 
-                // Get session expiration date in human-readable format
-                const expiresAt = new Date(Date.now() + req.session.cookie.maxAge);
-                console.log('Session expires at:', expiresAt.toISOString());
+                // Ensure Passport authentication state is properly set
+                req.user = user;
                 
-                // Explicitly set the session cookie for cross-origin requests
-                console.log('🔍 COOKIE SETTING DEBUG:');
-                console.log('   Request Origin:', req.headers.origin);
-                console.log('   Origin Allowed:', req.headers.origin && allowedOrigins.includes(req.headers.origin));
-                console.log('   Session ID:', req.sessionID);
-                console.log('   Session Name:', sessionName);
-                console.log('   Cookie Settings:', cookieSettings);
+                // Store user data in session AFTER Passport authentication
+                req.session.user = { 
+                    id: user._id, 
+                    email: user.email, 
+                    username: user.username 
+                };
                 
-                // CRITICAL FIX: Force set cookies for all requests in production
-                // Railway proxy might be interfering with origin-based logic
-                const shouldSetCookie = req.headers.origin && allowedOrigins.includes(req.headers.origin) || !req.headers.origin;
+                console.log('🔐 Session data set, calling req.session.touch()...');
                 
-                if (shouldSetCookie) {
-                    // Method 1: Use Express res.cookie (recommended)
-                    res.cookie(sessionName, req.sessionID, {
-                        httpOnly: true,
-                        secure: true,
-                        sameSite: 'none',
-                        maxAge: cookieSettings.maxAge,
-                        path: '/'
-                    });
-                    
-                    // Method 2: Manual header setting (backup)
-                    const cookieValue = `${sessionName}=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${Math.floor(cookieSettings.maxAge / 1000)}`;
-                    
-                    // Get existing Set-Cookie headers to append to them
-                    const existingCookies = res.getHeaders()['set-cookie'] || [];
-                    const allCookies = Array.isArray(existingCookies) 
-                        ? [...existingCookies, cookieValue]
-                        : existingCookies 
-                            ? [existingCookies, cookieValue]
-                            : [cookieValue];
-                    
-                    res.setHeader('Set-Cookie', allCookies);
-                    
-                    console.log('✅ Setting session cookie for login:');
-                    console.log('   Method: Express res.cookie + manual header');
-                    console.log('   Cookie Name:', sessionName);
-                    console.log('   Session ID:', req.sessionID);
-                    console.log('   Manual Cookie Value:', cookieValue);
-                    console.log('   All Cookies Being Set:', allCookies);
-                    
-                    // Force the response to flush cookies immediately
-                    res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-                    res.header('Pragma', 'no-cache');
-                    res.header('Expires', '0');
-                    
-                } else {
-                    console.log('❌ Not setting cookie - origin check failed');
-                    console.log('   Origin:', req.headers.origin);
-                    console.log('   Allowed Origins:', allowedOrigins.slice(0, 5), '...');
+                // Force session to be marked as modified
+                try {
+                    req.session.touch();
+                    console.log('🔐 Session touched successfully');
+                } catch (touchError) {
+                    console.error('🔐 Session touch error:', touchError);
                 }
                 
-                // Add session expiration info to the response
-                return res.status(200).json({ 
-                    success: true, 
-                    message: 'Login successful', 
-                    user: { 
-                        _id: user._id, 
-                        email: user.email, 
-                        username: user.username 
-                    },
-                    session: {
-                        id: req.sessionID,
-                        expiresAt: expiresAt.toISOString()
+                console.log('🔐 Calling req.session.save()...');
+                
+                // Save session after all data is added
+                req.session.save(function(err) {
+                    console.log('🔐 req.session.save callback called');
+                    if (err) {
+                        console.error('🔐 Session save error:', err);
+                        console.error('🔐 Session save error stack:', err.stack);
+                        return res.status(500).json({ error: 'Session storage error', details: err.message });
                     }
+                    
+                    console.log('🔐 Session saved successfully!');
+                    console.log('🔐 Login successful for:', user.username);
+                    console.log('🔐 Session ID:', req.sessionID);
+                    console.log('🔐 User authenticated:', req.isAuthenticated());
+                    console.log('🔐 User in session:', req.session.user);
+                    console.log('🔐 Session passport data:', req.session.passport);
+                    
+                    return res.status(200).json({ 
+                        success: true, 
+                        message: 'Login successful', 
+                        user: { 
+                            _id: user._id, 
+                            email: user.email, 
+                            username: user.username 
+                        }
+                    });
                 });
             });
-        });
-    })(req, res, next);
+        })(req, res, next);
+    } catch (outerError) {
+        console.error('🔐 Outer login error:', outerError);
+        console.error('🔐 Outer error stack:', outerError.stack);
+        return res.status(500).json({ error: 'Login route error', details: outerError.message });
+    }
 });
 
 app.get('/auth/google',
@@ -1217,231 +961,89 @@ app.get('/auth/google/homepage',
     });
 
 app.get('/logout', function(req, res, next) {
-    // Save user info for logging
     const username = req.user ? req.user.username : 'unknown';
-    const sessionID = req.sessionID;
     
-    console.log(`Logout request from ${username} with session ${sessionID}`);
-    
-    // First, log the user out (clear req.user and remove login session)
-    req.logout(function(logoutErr) {
-        if (logoutErr) { 
-            console.error('Logout error:', logoutErr);
+    req.logout(function(err) {
+        if (err) { 
+            console.error('Logout error:', err);
             return res.status(500).json({ error: 'Logout failed' }); 
         }
         
-        // Then destroy the session completely
-        req.session.destroy(function(destroyErr) {
-            if (destroyErr) {
-                console.error('Session destruction error:', destroyErr);
+        req.session.destroy(function(err) {
+            if (err) {
+                console.error('Session destruction error:', err);
                 return res.status(500).json({ error: 'Session destruction failed' });
             }
             
-            console.log(`User ${username} successfully logged out. Session ${sessionID} destroyed.`);
+            console.log(`User ${username} successfully logged out`);
             
-            // Clear the session cookie using the configured name
-            res.clearCookie(sessionName);
+            // Clear the session cookie
+            res.clearCookie(sessionName, { path: '/' });
             
-            // Return success response
             res.json({ 
                 success: true, 
-                message: 'Logged out successfully',
-                sessionDestroyed: true
+                message: 'Logged out successfully'
             });
         });
     });
 });
 
 app.get('/me', async (req, res) => {
-  console.log('/me endpoint hit - headers:', {
-    origin: req.headers.origin,
-    referer: req.headers.referer,
-    userAgent: req.headers['user-agent'],
-    contentType: req.headers['content-type'],
-    accept: req.headers.accept
-  });
-  
-  console.log('/me endpoint hit - session info:', {
-    sessionID: req.sessionID,
-    isAuthenticated: req.isAuthenticated(),
-    hasUser: !!req.user,
-    hasSession: !!req.session,
-    hasCookies: !!req.headers.cookie
-  });
-  
-  if (req.headers.cookie) {
-    console.log('/me endpoint hit - cookies:', req.headers.cookie);
-  }
-  
-  // Enhanced authentication check using both Passport and session data
   if (req.isAuthenticated() && req.user) {
-    // Always refresh user from DB to reflect admin-side changes (e.g., activation)
-    let freshUser = null;
     try {
-      freshUser = await User.findById(req.user._id);
-    } catch (e) {
-      console.warn('⚠️ /me endpoint - Failed to fetch fresh user from DB:', e.message);
-    }
-
-    const userToReturn = freshUser || req.user;
-
-    // If we fetched a fresher copy, update the session's user
-    if (freshUser) {
-      try {
-        await new Promise((resolve, reject) => {
-          req.login(freshUser, (err) => (err ? reject(err) : resolve()));
-        });
-        console.log('✅ /me endpoint - Session user refreshed from DB');
-      } catch (e) {
-        console.warn('⚠️ /me endpoint - Could not refresh session user:', e.message);
-      }
-    }
-
-    // Log successful authentication
-    console.log('👤 /me endpoint - User authenticated:', userToReturn.username);
-    console.log(`   User ID: ${userToReturn._id}`);
-    console.log(`   Balance: $${userToReturn.balance || 0}`);
-    console.log(`   hasDeposited: ${userToReturn.hasDeposited || false}`);
-    console.log(`   Tasks Status: ${(userToReturn.hasDeposited || false) ? '🔓 UNLOCKED' : '🔒 LOCKED'}`);
-    
-    // Return user info
-    return res.json({ 
-      user: {
-        _id: userToReturn._id,
-        username: userToReturn.username,
-        email: userToReturn.email,
-        balance: userToReturn.balance || 0,
-        hasDeposited: userToReturn.hasDeposited || false,
-        tasksUnlocked: userToReturn.tasksUnlocked || false,
-        referralCode: userToReturn.referralCode
-      },
-      sessionId: req.sessionID
-    });
-  } else if (req.session && req.session.userId) {
-    // Fallback: check if we have userId in session but Passport authentication failed
-    try {
-      // Try to retrieve user from database directly
-      const user = await User.findById(req.session.userId);
-      if (user) {
-        console.log('🔄 /me endpoint - Session user found, but Passport auth failed. Restoring session for:', user.username);
-        console.log(`   User ID: ${user._id}`);
-        console.log(`   Balance: $${user.balance || 0}`);
-        console.log(`   hasDeposited: ${user.hasDeposited || false}`);
-        console.log(`   Tasks Status: ${(user.hasDeposited || false) ? '🔓 UNLOCKED' : '🔒 LOCKED'}`);
-        
-        // Re-establish authentication
-        req.login(user, (err) => {
-          if (err) {
-            console.error('❌ Error re-establishing authentication:', err);
-            return res.status(401).json({ error: 'Session recovery failed' });
-          }
-          
-          console.log('✅ Session recovery successful for user:', user.username);
-          // Return user info
-          return res.json({ 
-            user: {
-              _id: user._id,
-              username: user.username,
-              email: user.email,
-              balance: user.balance || 0,
-              hasDeposited: user.hasDeposited || false,
-              referralCode: user.referralCode
-            },
-            sessionId: req.sessionID,
-            recovered: true
-          });
-        });
-  } else {
-        console.log('/me endpoint - Session user ID present but user not found in database');
-        return res.status(401).json({ error: 'Not authenticated' });
-      }
-    } catch (error) {
-      console.error('/me endpoint - Error looking up session user:', error);
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-  } else {
-    // Not authenticated - try session recovery
-    console.log('/me endpoint - User not authenticated, attempting recovery...');
-    
-    if (req.headers.cookie) {
-      const cookieMatch = req.headers.cookie.match(/easyearn\.sid=([^;]+)/);
-      if (cookieMatch && cookieMatch[1] !== req.sessionID) {
-        console.log('Session ID mismatch in /me. Cookie ID:', cookieMatch[1], 'Server ID:', req.sessionID);
-        
-        // Try to recover session from the cookie session ID
-        try {
-          sessionStore.get(cookieMatch[1], async (err, sessionData) => {
-            if (err) {
-              console.error('Error retrieving session:', err);
-              return res.status(401).json({ error: 'Not authenticated' });
-            }
-            
-            if (sessionData && sessionData.userId) {
-              try {
-                const user = await User.findById(sessionData.userId);
-                if (user) {
-                  console.log('   🔄 RECOVERING SESSION: Found session for user', user._id);
-                  console.log('   ✅ SESSION RECOVERY SUCCESS: User', user.username);
-                  
-                  req.login(user, (err) => {
-                    if (!err) {
-                      console.log('Successfully recovered authentication in /me');
-                      return res.json({ 
-                        user: {
-                          _id: user._id,
-                          username: user.username,
-                          email: user.email,
-                          balance: user.balance || 0,
-                          hasDeposited: user.hasDeposited || false,
-                          referralCode: user.referralCode
-                        },
-                        sessionId: req.sessionID,
-                        recovered: true
-                      });
-                    } else {
-                      console.error('Failed to recover authentication:', err);
-                      return res.status(401).json({ 
-                        error: 'Not authenticated',
-                        sessionPresent: !!req.session,
-                        cookiesPresent: !!req.headers.cookie,
-                        recoveryFailed: true
-                      });
-                    }
-                  });
-                  return; // Exit early
-                }
-              } catch (error) {
-                console.error('Error during session recovery:', error);
-                return res.status(401).json({ error: 'Session recovery failed' });
-              }
-            }
-            
-            // If no valid session data found, continue to not authenticated response
-            return res.status(401).json({ 
-              error: 'Not authenticated',
-              sessionPresent: !!req.session,
-              cookiesPresent: !!req.headers.cookie,
-              recoveryAttempted: true
-            });
-          });
-          return; // Exit early to prevent fall-through
-        } catch (error) {
-          console.error('Error in session recovery process:', error);
+      // Calculate total balance using the same logic as admin panel
+      const balanceData = await calculateUserBalance(req.user._id);
+      
+      // Return user info when authenticated
+      return res.json({ 
+        user: {
+          _id: req.user._id,
+          username: req.user.username,
+          email: req.user.email,
+          balance: balanceData.balance, // Base balance (deposits + tasks - withdrawals)
+          totalBalance: balanceData.totalBalance, // Total balance including additional balance
+          additionalBalance: balanceData.additionalBalance, // Admin-added additional balance
+          hasDeposited: req.user.hasDeposited || false,
+          tasksUnlocked: req.user.tasksUnlocked || false,
+          referralCode: req.user.referralCode
         }
-      }
+      });
+    } catch (error) {
+      console.error('Error calculating user balance in /me endpoint:', error);
+      // Fallback to basic balance if calculation fails
+      return res.json({ 
+        user: {
+          _id: req.user._id,
+          username: req.user.username,
+          email: req.user.email,
+          balance: req.user.balance || 0,
+          totalBalance: req.user.balance || 0,
+          additionalBalance: req.user.additionalBalance || 0,
+          hasDeposited: req.user.hasDeposited || false,
+          tasksUnlocked: req.user.tasksUnlocked || false,
+          referralCode: req.user.referralCode
+        }
+      });
     }
-    
-    // If recovery failed or not attempted
-    return res.status(401).json({ 
-      error: 'Not authenticated',
-      sessionPresent: !!req.session,
-      cookiesPresent: !!req.headers.cookie
+  } else if (req.session && req.session.user) {
+    // Fallback: return session user data if Passport auth failed
+    return res.json({ 
+      user: req.session.user,
+      recovered: true
     });
+  } else {
+    // Not authenticated
+    return res.status(401).json({ error: 'Not authenticated' });
   }
 });
 
 app.get('/', (req, res) => {
-    res.send('Hello World');
+    res.json({
+        message: 'EasyEarn Backend API',
+        status: 'running',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0'
+    });
 });
 
 // Health check endpoint - useful for testing CORS and connectivity
@@ -1468,7 +1070,7 @@ app.get('/health', (req, res) => {
     },
     cors: {
       origin: req.headers.origin || 'not specified',
-      allowedOrigins: allowedOrigins.slice(0, 10) // Show first 10 allowed origins
+      allowedOrigins: ALLOWED_ORIGINS.slice(0, 10) // Show first 10 allowed origins
     }
   });
 });
@@ -1505,6 +1107,15 @@ app.get('/debug/session', (req, res) => {
 
 // Cookie debug endpoint
 app.get('/debug/cookies', (req, res) => {
+  // Define cookie settings based on environment
+  const cookieSettings = {
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    httpOnly: true,
+    path: '/',
+    domain: undefined
+  };
+  
   // Set a test cookie
   res.cookie('test_cookie', 'cookie_value', {
     httpOnly: true,
@@ -1945,30 +1556,24 @@ app.put('/api/deposits/:id/confirm', ensureAuthenticated, async (req, res) => {
       const previousBalance = user.balance;
       
       if (isFirstDeposit && isMinimumAmount) {
-        // First deposit of $10+ unlocks tasks but doesn't add to balance
+        // First deposit of $10+ unlocks tasks
         user.hasDeposited = true;
-        // Balance calculation: total deposits - 10
-        const totalConfirmedDeposits = await Deposit.aggregate([
-          { $match: { userId: deposit.userId, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
-        console.log(`✅ FIRST DEPOSIT: Tasks unlocked! Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        // Use comprehensive balance calculation
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
+        console.log(`✅ FIRST DEPOSIT: Tasks unlocked! Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       } else if (!isFirstDeposit) {
         // Subsequent deposits add to balance normally
-        const totalConfirmedDeposits = await Deposit.aggregate([
-          { $match: { userId: deposit.userId, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
         user.hasDeposited = true; // Ensure tasks remain unlocked
-        console.log(`✅ SUBSEQUENT DEPOSIT: Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        console.log(`✅ SUBSEQUENT DEPOSIT: Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       } else {
         // First deposit but less than $10 - doesn't unlock tasks
         console.log(`⚠️ FIRST DEPOSIT TOO SMALL: $${deposit.amount} < $10, tasks remain locked`);
-        user.balance += deposit.amount; // Add to balance normally
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
+        console.log(`✅ SMALL FIRST DEPOSIT: Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       }
       
       await user.save();
@@ -2080,8 +1685,26 @@ app.get('/api/my-participations', async (req, res) => {
 // Admin: Get all participation requests
 app.get('/api/admin/participations', async (req, res) => {
   try {
-    const participations = await Participation.find({}).populate('user');
-    res.json({ participations });
+    const participations = await Participation.find({})
+      .populate('user', 'username email')
+      .populate('luckyDrawId', 'title prize')
+      .sort({ createdAt: -1 }); // Latest first
+    
+    // Transform participations to include both old and new format data
+    const transformedParticipations = participations.map(participation => {
+      const participationObj = participation.toObject();
+      
+      // For lucky draw participations, map luckyDrawId data to prize fields for admin panel compatibility
+      if (participationObj.luckyDrawId) {
+        participationObj.prizeTitle = participationObj.luckyDrawId.title;
+        participationObj.prizeId = participationObj.luckyDrawId._id;
+        participationObj.binanceUID = participationObj.walletAddress || 'N/A';
+      }
+      
+      return participationObj;
+    });
+    
+    res.json({ participations: transformedParticipations });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch participations', details: err.message });
   }
@@ -2116,6 +1739,21 @@ app.post('/api/admin/participations/:id/reject', async (req, res) => {
 
 // Admin: Get all deposits with pagination
 app.get('/api/admin/deposits', async (req, res) => {
+  console.log('💰 Admin deposits request received');
+  console.log('Origin:', req.headers.origin);
+  console.log('Query:', req.query);
+  
+  // Explicitly set CORS headers for admin endpoints
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for admin deposits: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
@@ -2222,30 +1860,24 @@ app.put('/api/admin/deposits/:id/confirm', async (req, res) => {
       const previousBalance = user.balance;
       
       if (isFirstDeposit && isMinimumAmount) {
-        // First deposit of $10+ unlocks tasks but doesn't add to balance
+        // First deposit of $10+ unlocks tasks
         user.hasDeposited = true;
-        // Balance calculation: total deposits - 10
-        const totalConfirmedDeposits = await Deposit.aggregate([
-          { $match: { userId: deposit.userId, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
-        console.log(`✅ ADMIN FIRST DEPOSIT: Tasks unlocked! Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        // Use comprehensive balance calculation
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
+        console.log(`✅ ADMIN FIRST DEPOSIT: Tasks unlocked! Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       } else if (!isFirstDeposit) {
         // Subsequent deposits add to balance normally
-        const totalConfirmedDeposits = await Deposit.aggregate([
-          { $match: { userId: deposit.userId, status: 'confirmed' } },
-          { $group: { _id: null, total: { $sum: '$amount' } } }
-        ]);
-        const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
-        user.balance = Math.max(0, totalDeposits - 10);
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
         user.hasDeposited = true; // Ensure tasks remain unlocked
-        console.log(`✅ ADMIN SUBSEQUENT DEPOSIT: Balance = ${totalDeposits} - 10 = $${user.balance}`);
+        console.log(`✅ ADMIN SUBSEQUENT DEPOSIT: Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       } else {
         // First deposit but less than $10 - doesn't unlock tasks
         console.log(`⚠️ ADMIN FIRST DEPOSIT TOO SMALL: $${deposit.amount} < $10, tasks remain locked`);
-        user.balance += deposit.amount; // Add to balance normally
+        const balanceData = await calculateUserBalance(deposit.userId);
+        user.balance = balanceData.balance;
+        console.log(`✅ ADMIN SMALL FIRST DEPOSIT: Balance = $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       }
       
       await user.save();
@@ -2333,6 +1965,21 @@ app.put('/api/admin/deposits/:id/reject', async (req, res) => {
 
 // Admin: Get all users with pagination
 app.get('/api/admin/users', async (req, res) => {
+  console.log('👥 Admin users request received');
+  console.log('Origin:', req.headers.origin);
+  console.log('Query:', req.query);
+  
+  // Explicitly set CORS headers for admin endpoints
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for admin users: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
@@ -2347,13 +1994,24 @@ app.get('/api/admin/users', async (req, res) => {
       .skip(skip)
       .limit(limit);
     
+    // Calculate total balance for each user (including additional balance)
+    const usersWithTotalBalance = await Promise.all(users.map(async (user) => {
+      const balanceData = await calculateUserBalance(user._id);
+      return {
+        ...user.toObject(),
+        totalBalance: balanceData.totalBalance,
+        baseBalance: balanceData.balance,
+        additionalBalance: balanceData.additionalBalance
+      };
+    }));
+    
     // Calculate pagination metadata
     const totalPages = Math.ceil(total / limit);
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
     
     res.json({ 
-      users,
+      users: usersWithTotalBalance,
       pagination: {
         currentPage: page,
         totalPages,
@@ -2432,6 +2090,125 @@ app.put('/api/admin/users/:id/deactivate', async (req, res) => {
   }
 });
 
+// Admin: Modify user balance (add/subtract amount)
+app.put('/api/admin/users/:id/balance', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, operation = 'add' } = req.body;
+
+    // Validate input
+    if (typeof amount !== 'number' || isNaN(amount)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Amount must be a valid number' 
+      });
+    }
+
+    if (!['add', 'subtract'].includes(operation)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Operation must be either "add" or "subtract"' 
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const oldBalance = user.balance || 0;
+    let newBalance;
+
+    if (operation === 'add') {
+      newBalance = oldBalance + amount;
+    } else {
+      newBalance = oldBalance - amount;
+    }
+
+    // Ensure balance doesn't go below 0 (optional business rule)
+    newBalance = Math.max(0, newBalance);
+
+    // Update user balance
+    user.balance = newBalance;
+    await user.save();
+
+    console.log(`✅ ADMIN BALANCE ${operation.toUpperCase()}: ${user.username} - $${oldBalance} ${operation === 'add' ? '+' : '-'} $${Math.abs(amount)} = $${newBalance}`);
+
+    res.json({
+      success: true,
+      message: `Successfully ${operation === 'add' ? 'added' : 'subtracted'} $${Math.abs(amount)} ${operation === 'add' ? 'to' : 'from'} user balance`,
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        balance: newBalance
+      },
+      operation,
+      amountChanged: amount,
+      oldBalance,
+      newBalance
+    });
+  } catch (err) {
+    console.error('Error modifying user balance:', err);
+    res.status(500).json({ error: 'Failed to modify user balance', details: err.message });
+  }
+});
+
+// Admin: Update user additional balance
+app.put('/api/admin/users/:id/additional-balance', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { additionalBalance, reason = 'Admin adjustment' } = req.body;
+
+    // Validate input
+    if (typeof additionalBalance !== 'number' || isNaN(additionalBalance)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Additional balance must be a valid number' 
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const oldAdditionalBalance = user.additionalBalance || 0;
+    const oldTotalBalance = (user.balance || 0) + oldAdditionalBalance;
+
+    // Update additional balance
+    user.additionalBalance = additionalBalance;
+    await user.save();
+
+    // Calculate new total balance
+    const balanceData = await calculateUserBalance(user._id);
+    const newTotalBalance = balanceData.totalBalance;
+
+    console.log(`✅ ADMIN ADDITIONAL BALANCE UPDATE: ${user.username} - Additional: $${oldAdditionalBalance} → $${additionalBalance} | Total: $${oldTotalBalance} → $${newTotalBalance}`);
+
+    res.json({
+      success: true,
+      message: `Successfully updated additional balance for ${user.username}`,
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        balance: balanceData.balance,
+        additionalBalance: user.additionalBalance,
+        totalBalance: newTotalBalance
+      },
+      oldAdditionalBalance,
+      newAdditionalBalance: additionalBalance,
+      oldTotalBalance,
+      newTotalBalance,
+      reason
+    });
+  } catch (err) {
+    console.error('Error updating additional balance:', err);
+    res.status(500).json({ error: 'Failed to update additional balance', details: err.message });
+  }
+});
+
 // Notification Schema
 const notificationSchema = new mongoose.Schema({
   title: String,
@@ -2474,6 +2251,249 @@ const taskSubmissionSchema = new mongoose.Schema({
 });
 
 const TaskSubmission = mongoose.model('TaskSubmission', taskSubmissionSchema);
+
+// Utility function for calculating user balance
+async function calculateUserBalance(userId) {
+  try {
+    // Get user to access additional balance
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Get total confirmed deposits
+    const totalConfirmedDeposits = await Deposit.aggregate([
+      { $match: { userId: userId, status: 'confirmed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalDeposits = totalConfirmedDeposits.length > 0 ? totalConfirmedDeposits[0].total : 0;
+
+    // Get total approved task rewards
+    const approvedTaskRewards = await TaskSubmission.aggregate([
+      { $match: { userId: userId, status: 'approved' } },
+      { $lookup: { from: 'tasks', localField: 'taskId', foreignField: '_id', as: 'task' } },
+      { $unwind: '$task' },
+      { $group: { _id: null, total: { $sum: '$task.reward' } } }
+    ]);
+    const totalTaskRewards = approvedTaskRewards.length > 0 ? approvedTaskRewards[0].total : 0;
+
+    // Get total withdrawals (pending, processing, and completed)
+    const totalWithdrawals = await WithdrawalRequest.aggregate([
+      { $match: { userId: userId, status: { $in: ['pending', 'processing', 'completed'] } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalWithdrawn = totalWithdrawals.length > 0 ? totalWithdrawals[0].total : 0;
+
+    // Get additional balance (admin-added amount)
+    const additionalBalance = user.additionalBalance || 0;
+
+    // Calculate balance: (deposits - $10) + task rewards + additional balance - withdrawals
+    const depositContribution = Math.max(0, totalDeposits - 10);
+    const baseBalance = Math.max(0, depositContribution + totalTaskRewards - totalWithdrawn);
+    const totalBalance = baseBalance + additionalBalance;
+
+    return {
+      balance: baseBalance, // Base balance without additional balance
+      totalBalance, // Total balance including additional balance
+      additionalBalance,
+      totalDeposits,
+      totalTaskRewards,
+      totalWithdrawn,
+      depositContribution
+    };
+  } catch (error) {
+    console.error('Error calculating user balance:', error);
+    return {
+      balance: 0,
+      totalBalance: 0,
+      additionalBalance: 0,
+      totalDeposits: 0,
+      totalTaskRewards: 0,
+      totalWithdrawn: 0,
+      depositContribution: 0
+    };
+  }
+}
+
+// Admin: Verify all user balances
+app.get('/api/admin/verify-balances', async (req, res) => {
+  try {
+    console.log('🔍 Starting comprehensive balance verification...');
+    
+    // Get all users
+    const users = await User.find({}).sort({ createdAt: -1 });
+    console.log(`👥 Found ${users.length} users to verify`);
+
+    let correctBalances = 0;
+    let incorrectBalances = 0;
+    let totalSystemBalance = 0;
+    let totalDeposits = 0;
+    let totalTaskRewards = 0;
+    let totalWithdrawals = 0;
+    const issues = [];
+    const userDetails = [];
+
+    for (const user of users) {
+      // Calculate expected balance
+      const balanceData = await calculateUserBalance(user._id);
+      const expectedBalance = balanceData.balance;
+      const actualBalance = user.balance || 0;
+
+      // Check if balance is correct
+      const isCorrect = Math.abs(actualBalance - expectedBalance) < 0.01;
+
+      if (isCorrect) {
+        correctBalances++;
+      } else {
+        incorrectBalances++;
+        issues.push({
+          username: user.username,
+          email: user.email,
+          actualBalance: actualBalance,
+          expectedBalance: expectedBalance,
+          difference: Math.abs(actualBalance - expectedBalance),
+          totalDeposits: balanceData.totalDeposits,
+          totalTaskRewards: balanceData.totalTaskRewards,
+          totalWithdrawn: balanceData.totalWithdrawn
+        });
+      }
+
+      totalSystemBalance += expectedBalance;
+      totalDeposits += balanceData.totalDeposits;
+      totalTaskRewards += balanceData.totalTaskRewards;
+      totalWithdrawals += balanceData.totalWithdrawn;
+
+      // Add user details for analysis
+      userDetails.push({
+        username: user.username,
+        email: user.email,
+        actualBalance: actualBalance,
+        expectedBalance: expectedBalance,
+        isCorrect: isCorrect,
+        totalDeposits: balanceData.totalDeposits,
+        totalTaskRewards: balanceData.totalTaskRewards,
+        totalWithdrawn: balanceData.totalWithdrawn,
+        depositContribution: balanceData.depositContribution
+      });
+    }
+
+    console.log('\n🎯 VERIFICATION COMPLETE!');
+    console.log(`📊 Summary: ${users.length} users, ${correctBalances} correct, ${incorrectBalances} incorrect`);
+
+    res.json({
+      success: true,
+      message: 'Balance verification completed',
+      summary: {
+        totalUsers: users.length,
+        correctBalances: correctBalances,
+        incorrectBalances: incorrectBalances,
+        accuracy: ((correctBalances / users.length) * 100).toFixed(2) + '%',
+        totalSystemBalance: totalSystemBalance.toFixed(2),
+        totalDeposits: totalDeposits.toFixed(2),
+        totalTaskRewards: totalTaskRewards.toFixed(2),
+        totalWithdrawals: totalWithdrawals.toFixed(2)
+      },
+      issues: issues,
+      userDetails: userDetails
+    });
+
+  } catch (error) {
+    console.error('❌ Error during balance verification:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to verify balances',
+      details: error.message 
+    });
+  }
+});
+
+// Admin: Fix all user balances
+app.post('/api/admin/fix-balances', async (req, res) => {
+  try {
+    console.log('🚀 Starting comprehensive user balance fix...');
+    
+    // Get all users
+    const users = await User.find({}).sort({ createdAt: -1 });
+    console.log(`👥 Found ${users.length} users to process`);
+
+    let processedCount = 0;
+    let updatedCount = 0;
+    let taskUnlockedCount = 0;
+    let totalSystemBalance = 0;
+    const results = [];
+
+    for (const user of users) {
+      processedCount++;
+      console.log(`\n🔍 Processing user ${processedCount}/${users.length}: ${user.username} (${user.email})`);
+
+      // Calculate new balance using comprehensive formula
+      const balanceData = await calculateUserBalance(user._id);
+      const newBalance = balanceData.balance;
+
+      // Determine if tasks should be unlocked
+      const shouldUnlockTasks = balanceData.totalDeposits >= 10;
+      const shouldHaveDeposited = balanceData.totalDeposits > 0;
+
+      // Check if updates are needed
+      const balanceChanged = user.balance !== newBalance;
+      const hasDepositedChanged = user.hasDeposited !== shouldHaveDeposited;
+      const tasksUnlockedChanged = user.tasksUnlocked !== shouldUnlockTasks;
+      const needsUpdate = balanceChanged || hasDepositedChanged || tasksUnlockedChanged;
+
+      if (needsUpdate) {
+        // Update user
+        user.balance = newBalance;
+        user.hasDeposited = shouldHaveDeposited;
+        user.tasksUnlocked = shouldUnlockTasks;
+        await user.save();
+
+        updatedCount++;
+        if (tasksUnlockedChanged && shouldUnlockTasks) {
+          taskUnlockedCount++;
+        }
+
+        console.log(`✅ User updated: ${user.username} - Balance: $${user.balance}`);
+      }
+
+      totalSystemBalance += newBalance;
+
+      results.push({
+        userId: user._id,
+        username: user.username,
+        email: user.email,
+        oldBalance: user.balance,
+        newBalance: newBalance,
+        totalDeposits: balanceData.totalDeposits,
+        totalTaskRewards: balanceData.totalTaskRewards,
+        totalWithdrawn: balanceData.totalWithdrawn,
+        updated: needsUpdate
+      });
+    }
+
+    console.log('\n🎉 COMPREHENSIVE BALANCE FIX COMPLETE!');
+    console.log(`📊 Summary: ${processedCount} users processed, ${updatedCount} updated, ${taskUnlockedCount} tasks unlocked`);
+
+    res.json({
+      success: true,
+      message: 'Balance fix completed successfully',
+      summary: {
+        totalUsers: processedCount,
+        usersUpdated: updatedCount,
+        tasksUnlocked: taskUnlockedCount,
+        totalSystemBalance: totalSystemBalance
+      },
+      results: results
+    });
+
+  } catch (error) {
+    console.error('❌ Error during balance fix:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fix balances',
+      details: error.message 
+    });
+  }
+});
 
 // Admin: Create notification
 app.post('/api/admin/notifications', async (req, res) => {
@@ -2539,6 +2559,20 @@ app.post('/api/admin/notifications', async (req, res) => {
 
 // Admin: Get all notifications
 app.get('/api/admin/notifications', async (req, res) => {
+  console.log('🔔 Admin notifications request received');
+  console.log('Origin:', req.headers.origin);
+  
+  // Explicitly set CORS headers for admin endpoints
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for admin notifications: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
   try {
     const notifications = await Notification.find({}).sort({ createdAt: -1 });
     res.json({ success: true, notifications });
@@ -2549,6 +2583,21 @@ app.get('/api/admin/notifications', async (req, res) => {
 
 // Admin: Get dashboard statistics
 app.get('/api/admin/dashboard-stats', async (req, res) => {
+  console.log('📊 Admin dashboard stats request received');
+  console.log('Origin:', req.headers.origin);
+  console.log('User-Agent:', req.headers['user-agent']);
+  
+  // Explicitly set CORS headers for admin endpoints
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    console.log(`✅ Setting CORS headers for admin endpoint: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cookie');
+    res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+  }
+  
   try {
     // Get current date and calculate date ranges
     const now = new Date();
@@ -3461,6 +3510,40 @@ app.post('/api/upload-deposit-receipt', ensureAuthenticated, upload.single('rece
   }
 });
 
+// Dedicated upload endpoint for lucky draw participation receipts
+app.post('/api/upload-lucky-draw-receipt', ensureAuthenticated, upload.single('receipt'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No receipt uploaded' });
+  }
+  
+  // Validate file type - only images for receipts
+  if (!req.file.mimetype.startsWith('image/')) {
+    return res.status(400).json({ error: 'Only image files are allowed for receipts' });
+  }
+  
+  // Validate file size (max 5MB for receipts)
+  if (req.file.size > 5 * 1024 * 1024) {
+    return res.status(400).json({ error: 'Receipt size must be less than 5MB' });
+  }
+  
+  try {
+    // Upload to Cloudinary with lucky draw-specific settings
+    const result = await streamUpload(req.file.buffer);
+    
+    console.log(`Lucky draw receipt uploaded by user ${req.user._id}: ${result.secure_url}`);
+    
+    res.json({ 
+      success: true, 
+      url: result.secure_url,
+      type: 'lucky-draw-receipt',
+      folder: 'easyearn/lucky-draws'
+    });
+  } catch (error) {
+    console.error('Error uploading lucky draw receipt to Cloudinary:', error);
+    res.status(500).json({ error: 'Failed to upload lucky draw receipt' });
+  }
+});
+
 // Get or create withdrawal requirements for current period
 app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) => {
   try {
@@ -3537,12 +3620,13 @@ app.get('/api/withdrawal-requirements', ensureAuthenticated, async (req, res) =>
     const totalDepositAmount = totalDeposits.length > 0 ? totalDeposits[0].total : 0;
     console.log('Total deposit amount:', totalDepositAmount);
 
-    // Check lucky draw participations in current 15-day period
+    // Check lucky draw participations in current 15-day period (only approved ones)
     const luckyDrawInPeriod = await Participation.countDocuments({
-      userId,
-      createdAt: { $gte: periodStart, $lte: periodEnd }
+      user: userId,
+      createdAt: { $gte: periodStart, $lte: periodEnd },
+      submittedButton: true // Only count approved participations
     });
-    console.log('Lucky draw participations in period:', luckyDrawInPeriod);
+    console.log('Lucky draw participations in period (approved):', luckyDrawInPeriod);
 
     // Update requirement status
     requirement.requirements.referrals.completed = referralsInPeriod;
@@ -3650,9 +3734,11 @@ app.post('/api/withdrawal-request', ensureAuthenticated, async (req, res) => {
 
     await withdrawalRequest.save();
 
-    // Deduct amount from user balance
-    user.balance -= amount;
+    // Recalculate user balance using comprehensive formula
+    const balanceData = await calculateUserBalance(userId);
+    user.balance = balanceData.balance;
     await user.save();
+    console.log(`✅ WITHDRAWAL REQUEST: Balance recalculated to $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
 
     res.json({
       success: true,
@@ -4020,12 +4106,14 @@ app.put('/api/admin/task-submissions/:submissionId/review', async (req, res) => 
     submission.reviewedAt = new Date();
     submission.reviewNotes = reviewNotes;
 
-    // If approved, add reward to user's balance
+    // If approved, recalculate user's balance using comprehensive formula
     if (status === 'approved' && submission.userId && submission.taskId) {
       const user = await User.findById(submission.userId._id);
       if (user) {
-        user.balance += submission.taskId.reward;
+        const balanceData = await calculateUserBalance(submission.userId._id);
+        user.balance = balanceData.balance;
         await user.save();
+        console.log(`✅ TASK APPROVED: Balance recalculated to $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
       }
     }
 
@@ -4102,13 +4190,13 @@ app.put('/api/admin/withdrawal-requests/:requestId/process', async (req, res) =>
     withdrawalRequest.processedAt = new Date();
     withdrawalRequest.notes = notes;
 
-    // If rejected, refund the amount to user's balance
-    if (status === 'rejected') {
-      const user = await User.findById(withdrawalRequest.userId._id);
-      if (user) {
-        user.balance += withdrawalRequest.amount;
-        await user.save();
-      }
+    // Recalculate user balance using comprehensive formula
+    const user = await User.findById(withdrawalRequest.userId._id);
+    if (user) {
+      const balanceData = await calculateUserBalance(withdrawalRequest.userId._id);
+      user.balance = balanceData.balance;
+      await user.save();
+      console.log(`✅ WITHDRAWAL ${status.toUpperCase()}: Balance recalculated to $${balanceData.balance} (Deposits: $${balanceData.totalDeposits}, Tasks: $${balanceData.totalTaskRewards}, Withdrawals: $${balanceData.totalWithdrawn})`);
     }
 
     await withdrawalRequest.save();
@@ -4312,7 +4400,7 @@ app.get('/api/lucky-draws/:id', async (req, res) => {
 app.post('/api/lucky-draws/:id/participate', ensureAuthenticated, async (req, res) => {
   try {
     const { id } = req.params;
-    const { walletAddress } = req.body;
+    const { walletAddress, receiptUrl } = req.body;
     
     const luckyDraw = await LuckyDraw.findById(id);
     if (!luckyDraw) {
@@ -4340,11 +4428,12 @@ app.post('/api/lucky-draws/:id/participate', ensureAuthenticated, async (req, re
       return res.status(400).json({ success: false, error: 'Maximum participants reached for this lucky draw' });
     }
     
-    // Create participation
+    // Create participation with receipt image
     const participation = new Participation({
       user: req.user._id,
       luckyDrawId: id,
       walletAddress,
+      receiptUrl: receiptUrl || null, // Store receipt image URL if provided
       submittedButton: null // Pending admin approval
     });
     
@@ -4402,7 +4491,4 @@ const cleanupExpiredLuckyDraws = async () => {
 // Run cleanup every hour
 setInterval(cleanupExpiredLuckyDraws, 60 * 60 * 1000);
 
-const PORT = process.env.PORT || 3005;
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+// Server startup is handled by the MongoDB connection promise above

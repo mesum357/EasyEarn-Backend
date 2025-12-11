@@ -19,16 +19,8 @@ const userSchema = new mongoose.Schema({
   followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   following: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   isAdmin: { type: Boolean, default: false }, // Admin role for entity approval
-  // Add missing fields for balance calculation
-  balance: { type: Number, default: 0 },
-  additionalBalance: { type: Number, default: 0 }, // Admin can add additional balance
-  totalBalance: { type: Number, default: 0 }, // Current balance + Additional balance
-  hasDeposited: { type: Boolean, default: false },
-  tasksUnlocked: { type: Boolean, default: false }, // Tasks unlocked after $10 deposit
-  referredBy: { type: String }, // Referral code of the user who referred this user
-  referralCode: { type: String, unique: true }, // This user's referral code
-  referralCount: { type: Number, default: 0 }, // Number of successful referrals
-  referralEarnings: { type: Number, default: 0 } // Earnings from referrals
+  balance: { type: Number, default: 0 }, // User's current balance
+  additionalBalance: { type: Number, default: 0 } // Admin-added additional balance
 }, { timestamps: true });
 
 // Add plugins
